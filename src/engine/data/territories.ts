@@ -33,7 +33,7 @@ const T = (
   victoryCity?: boolean,
 ): TerritoryDef => ({
   id, display, terrain, ipc,
-  x: projectLon(lon), y: projectLat(lat),
+  x: projectLon(lon), y: projectLat(lat), lon, lat,
   adjacent, originalOwner, victoryCity,
 });
 

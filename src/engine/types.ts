@@ -117,9 +117,12 @@ export interface TerritoryDef {
   originalOwner?: PowerId;
   /** Adjacent territory ids (movement graph; symmetric). */
   adjacent: string[];
-  /** Layout position for the SVG board (abstract grid coords, 0..100). */
+  /** Layout position for the 2D SVG board (projected grid coords, 0..100). */
   x: number;
   y: number;
+  /** True geographic position, used by the 3D globe renderer. */
+  lon: number;
+  lat: number;
   /** Victory city — relevant to the global victory conditions. */
   victoryCity?: boolean;
 }

@@ -8,7 +8,7 @@ import {
 } from "@engine/index";
 import { type GameView } from "./api.js";
 import { backend, LOCAL } from "./backend.js";
-import { Board } from "./components/Board.js";
+import { GlobeBoard as Board } from "./components/GlobeBoard.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { Lobby } from "./components/Lobby.js";
 import { MainMenu } from "./components/MainMenu.js";
