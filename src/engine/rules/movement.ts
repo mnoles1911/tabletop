@@ -1,7 +1,7 @@
 import type { GameState, PowerId, UnitTypeId } from "../types.js";
-import { UNITS } from "../data/units.js";
+import { UNITS, hasFlag } from "../data/units.js";
 import { areAllied, areEnemies } from "../data/powers.js";
-import { TERRITORY_INDEX, isSea } from "../data/territories.js";
+import { TERRITORY_INDEX, isSea, canalGate } from "../data/territories.js";
 import { neighbours, addUnits, removeUnits } from "./setup.js";
 import { captureTerritory } from "./control.js";
 
@@ -13,9 +13,24 @@ import { captureTerritory } from "./control.js";
 //   - intermediate territories must be passable (no enemy units = zone of
 //     control); the destination may hold enemies only during combat move,
 //     which queues a battle for the combat phase
+//   - air/naval bases in the starting territory grant +1 movement
 // ============================================================================
 
 const def = (t: UnitTypeId) => UNITS[t];
+
+/**
+ * Effective movement allowance: a unit starting in a territory with a friendly
+ * air base (air units) or naval base (sea units) gains +1 movement.
+ */
+export function movementAllowance(state: GameState, owner: PowerId, from: string, type: UnitTypeId): number {
+  let move = def(type).movement;
+  const here = state.territories[from];
+  const friendlyBase = (flag: string) =>
+    here?.units.some((u) => hasFlag(u.type, flag) && (u.owner === owner || areAllied(u.owner, owner)));
+  if (def(type).domain === "air" && friendlyBase("air_base")) move += 1;
+  if (def(type).domain === "sea" && friendlyBase("naval_base")) move += 1;
+  return move;
+}
 
 export interface MoveRequest {
   from: string;
@@ -71,6 +86,14 @@ function shortestPath(
     for (const { node, dist } of frontier) {
       for (const n of neighbours(node)) {
         if (seen.has(n)) continue;
+        // Canals only let through ships of a power friendly with the gate's owner.
+        if (def(type).domain === "sea") {
+          const gate = canalGate(node, n);
+          if (gate) {
+            const gc = state.territories[gate].controller;
+            if (!gc || (gc !== owner && !areAllied(gc, owner))) continue;
+          }
+        }
         seen.add(n);
         if (n === to) return dist + 1;
         // Only continue the search through passable intermediates.
@@ -104,8 +127,9 @@ export function checkMove(state: GameState, owner: PowerId, req: MoveRequest): M
 
   const dist = shortestPath(state, from, to, type, owner);
   if (dist === Infinity) return { ok: false, reason: "No legal path (blocked by enemy units or terrain)." };
-  if (dist > def(type).movement) {
-    return { ok: false, reason: `Out of range (needs ${dist}, has ${def(type).movement}).` };
+  const allowance = movementAllowance(state, owner, from, type);
+  if (dist > allowance) {
+    return { ok: false, reason: `Out of range (needs ${dist}, has ${allowance}).` };
   }
 
   const destEnemies = state.territories[to].units.some((u) => areEnemies(u.owner, owner) && u.count > 0);

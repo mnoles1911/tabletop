@@ -52,7 +52,7 @@ export const TERRITORIES: TerritoryDef[] = [
   T("baltic_states", "Baltic States", "land", 2, 53, 35, ["poland", "russia", "novgorod"], "SovietUnion"),
 
   // --- Mediterranean & North Africa ------------------------------------
-  T("sz_med", "SZ Mediterranean", "sea", 0, 44, 58, ["italy", "france", "sz_e_atlantic", "libya", "egypt"]),
+  T("sz_med", "SZ Mediterranean", "sea", 0, 44, 58, ["italy", "france", "sz_e_atlantic", "libya", "egypt", "sz_indian"]),
   T("algeria", "Algeria", "land", 2, 40, 64, ["spain", "sz_e_atlantic", "libya"], "France"),
   T("libya", "Libya", "land", 2, 45, 64, ["italy", "algeria", "egypt", "sz_med"], "Italy"),
   T("egypt", "Egypt", "land", 4, 51, 63, ["libya", "sz_med", "persia"], "UnitedKingdom"),
@@ -112,6 +112,25 @@ export const TERRITORIES: TerritoryDef[] = [
 export const TERRITORY_INDEX: Record<string, TerritoryDef> = Object.fromEntries(
   TERRITORIES.map((t) => [t.id, t]),
 );
+
+/**
+ * Canals: a sea passage between two zones that may only be traversed by a power
+ * friendly with the controller of the gate territory. (Suez here; Panama would
+ * be added with a Central-America territory.)
+ */
+export interface Canal {
+  between: [string, string];
+  gate: string;
+}
+export const CANALS: Canal[] = [{ between: ["sz_med", "sz_indian"], gate: "egypt" }];
+
+/** If the edge a–b is a canal, return the gate territory id; else null. */
+export function canalGate(a: string, b: string): string | null {
+  for (const c of CANALS) {
+    if ((c.between[0] === a && c.between[1] === b) || (c.between[0] === b && c.between[1] === a)) return c.gate;
+  }
+  return null;
+}
 
 export const isSea = (id: string): boolean => TERRITORY_INDEX[id]?.terrain === "sea";
 export const isLand = (id: string): boolean => {

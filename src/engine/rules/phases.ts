@@ -45,6 +45,12 @@ export function advancePhase(state: GameState): void {
     state.combat.battles = [];
   }
 
+  // Leaving non-combat movement: any of this power's aircraft that failed to
+  // reach a safe landing spot are lost (planes must land).
+  if (state.phase === "noncombat_move") {
+    enforceAirLanding(state, state.activePower);
+  }
+
   // Leaving collect_income: bank IPC and pass the turn.
   if (state.phase === "collect_income") {
     const power = state.activePower;
@@ -102,6 +108,32 @@ function isStillInPlay(state: GameState, power: PowerId): boolean {
   return Object.values(state.territories).some((t) => t.controller === power);
 }
 
+/**
+ * Planes must land. An air unit is safe on friendly-controlled land, or in a
+ * sea zone holding a friendly aircraft carrier. Aircraft that end the turn
+ * stranded (over the sea with no carrier, or over enemy/neutral land) are lost.
+ */
+export function enforceAirLanding(state: GameState, power: PowerId): void {
+  for (const ts of Object.values(state.territories)) {
+    const air = ts.units.filter((u) => u.owner === power && UNITS[u.type].domain === "air");
+    if (air.length === 0) continue;
+
+    let safe: boolean;
+    if (isSea(ts.id)) {
+      safe = ts.units.some((u) => u.type === "aircraft_carrier" && (u.owner === power || POWERS[u.owner].alliance === POWERS[power].alliance));
+    } else {
+      const c = ts.controller;
+      safe = !!c && (c === power || POWERS[c].alliance === POWERS[power].alliance);
+    }
+    if (safe) continue;
+
+    for (const u of air) {
+      log(state, `${POWERS[power].display} loses ${u.count}× ${UNITS[u.type].display} — nowhere to land in ${TERRITORY_INDEX[ts.id].display}.`);
+    }
+    ts.units = ts.units.filter((u) => !(u.owner === power && UNITS[u.type].domain === "air"));
+  }
+}
+
 // --- Mobilization -----------------------------------------------------------
 
 /** Territories where `power` may place newly-built units of `type`. */
@@ -118,15 +150,18 @@ export function placementOptions(state: GameState, power: PowerId, type: UnitTyp
   );
 
   if (d.domain === "structure") {
-    // New factories go onto controlled, originally-owned land lacking one.
+    // Structures place onto controlled, originally-owned land. Factories need a
+    // factory-free territory; air bases need an air-base-free one; naval bases
+    // need air-base-free *coastal* land (adjacent to a sea zone).
+    const flag = type === "air_base" ? "air_base" : type === "naval_base" ? "naval_base" : "factory";
     return Object.values(state.territories)
-      .filter(
-        (ts) =>
-          ts.controller === power &&
-          !isSea(ts.id) &&
-          TERRITORY_INDEX[ts.id].originalOwner === power &&
-          !ts.units.some((u) => hasFlag(u.type, "factory")),
-      )
+      .filter((ts) => {
+        if (ts.controller !== power || isSea(ts.id)) return false;
+        if (TERRITORY_INDEX[ts.id].originalOwner !== power) return false;
+        if (ts.units.some((u) => hasFlag(u.type, flag))) return false;
+        if (type === "naval_base" && !neighbours(ts.id).some((n) => isSea(n))) return false;
+        return true;
+      })
       .map((ts) => ts.id);
   }
 
@@ -207,8 +242,10 @@ export function repairFactory(state: GameState, power: PowerId, territory: strin
   const damage = ts.factoryDamage ?? 0;
   const fix = Math.max(0, Math.min(amount, damage));
   if (fix <= 0) return { ok: false, reason: "Nothing to repair there." };
-  if (state.treasury[power] < fix) return { ok: false, reason: "Not enough IPC to repair." };
-  state.treasury[power] -= fix;
+  // Improved Shipyards halves repair cost.
+  const cost = hasTech(state, power, "improved_shipyards") ? Math.ceil(fix / 2) : fix;
+  if (state.treasury[power] < cost) return { ok: false, reason: "Not enough IPC to repair." };
+  state.treasury[power] -= cost;
   ts.factoryDamage = damage - fix;
   log(state, `${POWERS[power].display} repairs ${fix} factory damage in ${TERRITORY_INDEX[territory].display}.`);
   return { ok: true };

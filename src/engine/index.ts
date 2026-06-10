@@ -8,7 +8,7 @@ export { applyAction } from "./rules/actions.js";
 export type { Action, ActionResult } from "./rules/actions.js";
 export { resolveBattle, stepBattle, retreatBattle, assignCasualties, autoCasualties } from "./rules/combat.js";
 export type { CombatResult } from "./rules/combat.js";
-export { checkMove } from "./rules/movement.js";
+export { checkMove, movementAllowance } from "./rules/movement.js";
 export type { MoveRequest, MoveCheck } from "./rules/movement.js";
 export { checkTransport } from "./rules/transport.js";
 export type { TransportRequest, TransportCheck } from "./rules/transport.js";

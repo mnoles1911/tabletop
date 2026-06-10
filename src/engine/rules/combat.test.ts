@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createInitialState } from "./setup.js";
 import { resolveBattle } from "./combat.js";
 import { applyAction } from "./actions.js";
+import { movementAllowance } from "./movement.js";
 import { DEFAULT_OPTIONS } from "../types.js";
 
 // Deterministic combat: the same seed must always produce the same battle.
@@ -112,4 +113,41 @@ test("annexing a neutral by walking in takes control", () => {
   const r = applyAction(s, { kind: "move", from: "france", to: "spain", unit: "infantry", count: 1 }, "Germany");
   assert.equal(r.ok, true);
   assert.equal(s.territories["spain"].controller, "Germany");
+});
+
+test("a naval base grants +1 movement to ships starting there", () => {
+  const s = createInitialState(42);
+  s.activePower = "Germany";
+  s.phase = "noncombat_move";
+  // Put a German naval base + cruiser in sz_baltic; baseline cruiser move = 2.
+  s.territories["sz_baltic"].units.push({ type: "naval_base", owner: "Germany", count: 1 });
+  s.territories["sz_baltic"].units.push({ type: "cruiser", owner: "Germany", count: 1 });
+  // sz_baltic -> sz_north -> sz_mid_atlantic is 2 hops; with +1 it reaches a 3rd.
+  // Just assert the allowance is 3 now (base +1 over the cruiser's base 2).
+  assert.equal(movementAllowance(s, "Germany", "sz_baltic", "cruiser"), 3);
+});
+
+test("stranded aircraft are lost when non-combat movement ends", () => {
+  const s = createInitialState(42);
+  s.activePower = "Germany";
+  s.phase = "noncombat_move";
+  // A German fighter alone in an open sea zone with no carrier is doomed.
+  s.territories["sz_e_atlantic"].units.push({ type: "fighter", owner: "Germany", count: 1 });
+  applyAction(s, { kind: "advance_phase" }, "Germany"); // leaves noncombat_move
+  const left = s.territories["sz_e_atlantic"].units.find((u) => u.type === "fighter" && u.owner === "Germany");
+  assert.equal(left, undefined);
+});
+
+test("Suez canal blocks ships unless the gate (Egypt) is friendly", () => {
+  const s = createInitialState(42);
+  s.activePower = "Italy";
+  s.phase = "noncombat_move";
+  s.territories["sz_med"].units.push({ type: "cruiser", owner: "Italy", count: 1 });
+  // Egypt starts UK-controlled (enemy of Italy) -> passage blocked.
+  let r = applyAction(s, { kind: "move", from: "sz_med", to: "sz_indian", unit: "cruiser", count: 1 }, "Italy");
+  assert.equal(r.ok, false);
+  // Hand Egypt to Italy -> passage now allowed.
+  s.territories["egypt"].controller = "Italy";
+  r = applyAction(s, { kind: "move", from: "sz_med", to: "sz_indian", unit: "cruiser", count: 1 }, "Italy");
+  assert.equal(r.ok, true);
 });

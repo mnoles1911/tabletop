@@ -182,6 +182,30 @@ export const UNITS: Record<UnitTypeId, UnitDef> = {
     immobileInCombatMove: true,
     flags: ["factory"],
   },
+  air_base: {
+    id: "air_base",
+    display: "Air Base",
+    domain: "structure",
+    cost: 12,
+    attack: 0,
+    defense: 0,
+    movement: 0,
+    hits: 1,
+    immobileInCombatMove: true,
+    flags: ["air_base"],
+  },
+  naval_base: {
+    id: "naval_base",
+    display: "Naval Base",
+    domain: "structure",
+    cost: 12,
+    attack: 0,
+    defense: 0,
+    movement: 0,
+    hits: 1,
+    immobileInCombatMove: true,
+    flags: ["naval_base"],
+  },
 };
 
 export const unitDef = (id: UnitTypeId): UnitDef => UNITS[id];
@@ -207,4 +231,6 @@ export const PURCHASABLE: UnitTypeId[] = [
   "transport",
   "major_ic",
   "minor_ic",
+  "air_base",
+  "naval_base",
 ];

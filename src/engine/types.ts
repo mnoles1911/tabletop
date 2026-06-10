@@ -54,7 +54,9 @@ export type UnitTypeId =
   | "battleship"
   | "transport"
   | "major_ic" // major industrial complex
-  | "minor_ic"; // minor industrial complex
+  | "minor_ic" // minor industrial complex
+  | "air_base" // extends air range, enables scramble
+  | "naval_base"; // extends sea range, repairs ships
 
 export type Domain = "land" | "air" | "sea" | "structure";
 
@@ -88,7 +90,9 @@ export type UnitFlag =
   | "tactical_pair" // tac bomber attacks at 4 when paired with fighter/tank
   | "aa_fire" // anti-air opening fire vs air units
   | "bombard" // battleship/cruiser shore bombardment during amphibious assault
-  | "factory"; // industrial complex (produces units, can be strat-bombed)
+  | "factory" // industrial complex (produces units, can be strat-bombed)
+  | "air_base" // extends air range / enables scramble
+  | "naval_base"; // extends sea range
 
 /** A stack of identical units sitting in one territory, owned by one power. */
 export interface UnitStack {

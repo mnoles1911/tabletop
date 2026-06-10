@@ -98,6 +98,9 @@ action, actor)` — is the only way the game state ever changes.
   round's hits (or auto cheapest-first).
 - **Production limits:** factories build up to their capacity (major = territory
   value, minor = 3, ± tech), reduced by bombing damage.
+- **Air & naval bases:** grant +1 movement to air/sea units starting there;
+  aircraft that can't reach a friendly landing spot are lost at turn's end.
+- **Suez canal:** ships pass only if a friendly power controls Egypt.
 - **House rules:** Low Luck dice, National Objective income, victory by capitals
   *or* by N victory cities — all chosen on the main menu.
 - **Lobby:** one player may control several powers, so 2–7 friends fill all nine
@@ -111,19 +114,21 @@ turn order, and starting IPC are in `src/engine/data/powers.ts`.
 
 ## Roadmap (toward full-rulebook fidelity)
 
-The major systems are in. What remains is breadth and edge rules:
+Most systems are in. What remains is breadth and a few edge rules:
 
 1. **Full 150-territory map** — the board is now 59 territories on the exact
    production schema; the rest is data entry in `territories.ts`.
-2. **Scrambling** fighters from air/naval bases to defend adjacent sea zones.
-3. **Canals** (Suez/Panama) gating sea movement by control of the adjacent land.
-4. **Strict/pro-faction neutrals** and collapse-into-your-side mechanics.
-5. **Kamikaze** strikes and **convoy disruption** raids.
-6. **Air-base / naval-base** range extensions and operational repair.
+2. **Scrambling** fighters from air bases to defend adjacent sea battles
+   (the bases exist; the defensive interrupt is the remaining piece).
+3. **Panama Canal** (Suez is implemented) — needs a Central-America territory.
+4. **Kamikaze** strikes and **pro-faction neutral** collapse mechanics.
 
-Implemented: turn structure, IPC economy, National Objectives, movement,
-combat (incl. amphibious, bombardment, SBR), interactive casualties, transports,
-research & tech, production limits, and victory conditions.
+Implemented: turn structure, IPC economy, National Objectives, convoy
+disruption, movement (with air/naval-base +1 range and the Suez canal gate),
+combat (amphibious, shore bombardment, strategic bombing), interactive
+casualties, transports, research & six techs, production limits & factory
+repair, air-landing enforcement, capture-on-move / neutral annexation, and
+victory conditions.
 
 ## Testing
 
