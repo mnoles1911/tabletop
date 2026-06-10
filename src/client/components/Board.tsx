@@ -62,6 +62,12 @@ function useViewTransform() {
     return Math.min(r.width, r.height) / 100;
   };
 
+  // Keep the world filling the viewport: never pan into blank space.
+  const clamp = (n: { s: number; x: number; y: number }) => {
+    const min = 100 - 100 * n.s;
+    return { s: n.s, x: Math.min(0, Math.max(min, n.x)), y: Math.min(0, Math.max(min, n.y)) };
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
     (e.target as Element).setPointerCapture?.(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -91,7 +97,7 @@ function useViewTransform() {
       const dy = e.clientY - last.current.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) moved.current = true;
       const ppu = pxPerUnit();
-      setT((p) => ({ ...p, x: p.x + dx / ppu, y: p.y + dy / ppu }));
+      setT((p) => clamp({ ...p, x: p.x + dx / ppu, y: p.y + dy / ppu }));
       last.current = { x: e.clientX, y: e.clientY };
     }
   };
@@ -114,7 +120,7 @@ function useViewTransform() {
       const cy = py / ppu;
       const pX = (cx - p.x) / p.s;
       const pY = (cy - p.y) / p.s;
-      return { s: s2, x: cx - pX * s2, y: cy - pY * s2 };
+      return clamp({ s: s2, x: cx - pX * s2, y: cy - pY * s2 });
     });
   };
 
@@ -216,17 +222,28 @@ export function Board({ state, selected, targets, battles, onPick }: Props) {
             return <path key={c.id} className={cls} d={c.path} fill={controllerColor(state, c.id)} fillOpacity={0.46} onClick={() => pick(c.id)} />;
           })}
 
-          {/* Labels, unit chips, capital stars */}
+        </g>
+
+        {/* Constant-size overlay: labels & unit chips keep a fixed on-screen
+            size, so as you zoom in the map detail grows while text/icons stay
+            readable. Level-of-detail + culling keep the world view uncluttered. */}
+        <g pointerEvents="none">
           {cells.map((c) => {
+            const sx = c.cx * vt.t.s + vt.t.x;
+            const sy = c.cy * vt.t.s + vt.t.y;
+            if (sx < -3 || sx > 103 || sy < -3 || sy > 103) return null; // off-screen
             const total = totalUnits(state, c.id);
+            const showName = c.def.victoryCity || vt.t.s >= 1.7;
+            const showIpc = !c.sea && c.def.ipc > 0 && vt.t.s >= 2.4;
             const name = c.def.display.length > 16 ? c.def.display.slice(0, 15) + "…" : c.def.display;
+            if (!showName && total === 0 && !c.def.victoryCity) return null;
             return (
-              <g key={c.id} pointerEvents="none">
-                {c.def.victoryCity && <text className="cap-star" x={c.cx} y={c.cy - 2.2}>★</text>}
-                <text className={c.sea ? "terr-label sea-label" : "terr-label"} x={c.cx} y={c.cy - 0.2}>{name}</text>
-                {!c.sea && c.def.ipc > 0 && <text className="terr-ipc" x={c.cx} y={c.cy + 1.7}>◆{c.def.ipc}</text>}
+              <g key={c.id}>
+                {c.def.victoryCity && <text className="cap-star" x={sx} y={sy - 2.2}>★</text>}
+                {showName && <text className={c.sea ? "terr-label sea-label" : "terr-label"} x={sx} y={sy - 0.2}>{name}</text>}
+                {showIpc && <text className="terr-ipc" x={sx} y={sy + 1.7}>◆{c.def.ipc}</text>}
                 {total > 0 && (
-                  <g transform={`translate(${c.cx}, ${c.cy + (c.sea ? 1.6 : 3.4)})`}>
+                  <g transform={`translate(${sx}, ${sy + (c.sea ? 1.6 : 3.4)})`}>
                     <rect className="unit-chip" x={-3} y={-1.5} width={6} height={3} rx={1.4} />
                     <text className="terr-units" x={0} y={0.7}>⚔{total}</text>
                   </g>
