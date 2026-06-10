@@ -64,22 +64,35 @@ export const TERRITORIES: TerritoryDef[] = [
   T("sz_north", "SZ North Sea", "sea", 0, 2, 57, ["sz_mid_atlantic", "united_kingdom", "norway", "holland_belgium", "denmark", "sz_baltic"]),
   T("iceland", "Iceland", "island", 1, -19, 65, ["sz_mid_atlantic", "sz_north"]),
   T("united_kingdom", "United Kingdom", "capital", 8, -2, 53, ["sz_north", "france", "sz_e_atlantic"], "UnitedKingdom", true),
-  T("france", "France", "capital", 10, 2, 47, ["united_kingdom", "western_germany", "holland_belgium", "spain", "italy", "sz_med"], "France", true),
-  T("spain", "Spain", "land", 2, -4, 40, ["france", "sz_e_atlantic", "gibraltar", "algeria"]),
+  // France splits into three historic A&A provinces that all touch the Paris
+  // (France) outline, exactly as on the board: Normandy Bordeaux to the west,
+  // Southern France to the southeast, plus the France capital itself.
+  T("france", "France", "capital", 10, 2, 47, ["united_kingdom", "western_germany", "holland_belgium", "spain", "italy", "sz_med", "normandy_bordeaux", "southern_france"], "France", true),
+  T("normandy_bordeaux", "Normandy Bordeaux", "land", 2, -1.5, 46.5, ["france", "spain", "sz_e_atlantic"], "France"),
+  T("southern_france", "Southern France", "land", 2, 5.5, 44, ["france", "northern_italy", "sz_med"], "France"),
+  T("spain", "Spain", "land", 2, -4, 40, ["france", "normandy_bordeaux", "sz_e_atlantic", "gibraltar", "algeria"]),
   T("gibraltar", "Gibraltar", "land", 1, -5.5, 36, ["spain", "sz_e_atlantic", "sz_med"], "UnitedKingdom"),
   T("holland_belgium", "Holland & Belgium", "land", 2, 5, 51, ["france", "western_germany", "sz_north"], "Germany"),
   T("western_germany", "Western Germany", "land", 4, 8, 51, ["france", "holland_belgium", "germany", "greater_southern_germany"], "Germany"),
   T("germany", "Germany", "capital", 10, 13, 52.5, ["western_germany", "greater_southern_germany", "denmark", "poland", "sz_baltic"], "Germany", true),
-  T("greater_southern_germany", "Greater Southern Germany", "land", 5, 13, 48.5, ["western_germany", "germany", "italy", "poland", "slovakia_hungary"], "Germany"),
+  T("greater_southern_germany", "Greater Southern Germany", "land", 5, 13, 48.5, ["western_germany", "germany", "italy", "northern_italy", "poland", "slovakia_hungary"], "Germany"),
   T("denmark", "Denmark", "land", 1, 10, 56, ["germany", "sz_baltic", "sz_north"], "Germany"),
   T("norway", "Norway", "land", 3, 9, 62, ["sz_north", "sz_baltic", "finland"]),
-  T("italy", "Italy", "capital", 10, 12.5, 42, ["greater_southern_germany", "france", "balkans", "sz_med", "libya"], "Italy", true),
+  // Italy proper (Rome) plus the industrial north and the southern boot, both
+  // of which border the Rome outline on the board.
+  T("italy", "Italy", "capital", 10, 12.5, 42, ["greater_southern_germany", "france", "balkans", "sz_med", "libya", "northern_italy", "southern_italy"], "Italy", true),
+  T("northern_italy", "Northern Italy", "land", 3, 9.5, 45.3, ["southern_france", "italy", "greater_southern_germany", "yugoslavia", "sz_med"], "Italy"),
+  T("southern_italy", "Southern Italy", "land", 3, 16, 40, ["italy", "sz_med"], "Italy"),
 
   // --- Eastern Europe & the Balkans ------------------------------------
   T("poland", "Poland", "land", 4, 19, 52, ["germany", "greater_southern_germany", "slovakia_hungary", "eastern_poland", "baltic_states"], "Germany"),
   T("eastern_poland", "Eastern Poland", "land", 2, 25, 52, ["poland", "baltic_states", "western_ukraine", "novgorod"], "SovietUnion"),
   T("slovakia_hungary", "Slovakia & Hungary", "land", 2, 19, 47.5, ["greater_southern_germany", "poland", "romania", "balkans"], "Germany"),
-  T("balkans", "Balkans", "land", 3, 21, 43.5, ["italy", "slovakia_hungary", "romania", "bulgaria", "sz_med"], "Germany"),
+  T("balkans", "Balkans", "land", 3, 21, 43.5, ["italy", "slovakia_hungary", "romania", "bulgaria", "sz_med", "greece", "yugoslavia"], "Germany"),
+  // Yugoslavia and Greece are the strict-neutral SE European territories that
+  // bridge Northern Italy, the Balkans and the Mediterranean.
+  T("yugoslavia", "Yugoslavia", "land", 2, 20, 44, ["balkans", "slovakia_hungary", "northern_italy", "greece", "sz_med"]),
+  T("greece", "Greece", "land", 1, 22, 39, ["balkans", "yugoslavia", "bulgaria", "sz_med"]),
   T("romania", "Romania", "land", 3, 25, 46, ["slovakia_hungary", "balkans", "bulgaria", "western_ukraine", "bessarabia"], "Germany"),
   T("bulgaria", "Bulgaria", "land", 1, 25, 42.5, ["balkans", "romania", "sz_med"], "Germany"),
   T("bessarabia", "Bessarabia", "land", 1, 28.5, 47.5, ["romania", "western_ukraine", "ukraine"], "SovietUnion"),
@@ -88,9 +101,12 @@ export const TERRITORIES: TerritoryDef[] = [
 
   // --- Mediterranean & North Africa ------------------------------------
   T("sz_med", "SZ Mediterranean", "sea", 0, 17, 35, ["italy", "france", "balkans", "bulgaria", "sz_e_atlantic", "gibraltar", "libya", "egypt", "sz_indian"]),
-  T("algeria", "Algeria", "land", 2, 2, 30, ["spain", "sz_e_atlantic", "libya"], "France"),
-  T("libya", "Libya", "land", 2, 18, 27, ["italy", "algeria", "egypt", "sz_med"], "Italy"),
-  T("egypt", "Egypt", "land", 4, 30, 26, ["libya", "sz_med", "trans_jordan", "anglo_sudan", "persia"], "UnitedKingdom"),
+  T("algeria", "Algeria", "land", 2, 2, 30, ["spain", "sz_e_atlantic", "libya", "morocco", "tunisia"], "France"),
+  T("morocco", "Morocco", "land", 1, -7, 32, ["algeria", "sz_e_atlantic"], "France"),
+  T("tunisia", "Tunisia", "land", 1, 10, 34, ["algeria", "libya", "sz_med"], "France"),
+  T("libya", "Libya", "land", 2, 18, 27, ["italy", "algeria", "egypt", "sz_med", "tunisia", "tobruk"], "Italy"),
+  T("tobruk", "Tobruk", "land", 1, 23, 31, ["libya", "egypt", "sz_med"], "Italy"),
+  T("egypt", "Egypt", "land", 4, 30, 26, ["libya", "tobruk", "sz_med", "trans_jordan", "anglo_sudan", "persia"], "UnitedKingdom"),
   T("west_africa", "West Africa", "land", 2, -8, 12, ["algeria", "sz_e_atlantic", "sz_s_atlantic", "congo"], "France"),
   T("congo", "Belgian Congo", "land", 2, 22, -3, ["west_africa", "anglo_sudan", "east_africa", "rhodesia"]),
   T("anglo_sudan", "Anglo-Egyptian Sudan", "land", 1, 30, 14, ["egypt", "congo", "east_africa"], "UnitedKingdom"),
@@ -101,7 +117,10 @@ export const TERRITORIES: TerritoryDef[] = [
   // --- Soviet Union -----------------------------------------------------
   T("sz_baltic", "SZ Baltic", "sea", 0, 19, 58, ["germany", "denmark", "norway", "finland", "baltic_states", "sz_north"]),
   T("russia", "Russia", "capital", 8, 38, 56, ["novgorod", "ukraine", "samara", "caucasus"], "SovietUnion", true),
-  T("novgorod", "Novgorod", "land", 2, 33, 59, ["russia", "baltic_states", "finland", "eastern_poland", "archangel"], "SovietUnion"),
+  T("novgorod", "Novgorod", "land", 2, 33, 59, ["russia", "baltic_states", "finland", "eastern_poland", "archangel", "belarus"], "SovietUnion"),
+  // Belorussia — the central land bridge between the Polish border, the Baltic
+  // states and the Russian capital region.
+  T("belarus", "Belorussia", "land", 2, 28, 53.5, ["eastern_poland", "baltic_states", "western_ukraine", "novgorod", "russia"], "SovietUnion"),
   T("ukraine", "Ukraine", "land", 3, 33, 49, ["western_ukraine", "bessarabia", "russia", "caucasus"], "SovietUnion"),
   T("western_ukraine", "Western Ukraine", "land", 2, 27, 49.5, ["eastern_poland", "ukraine", "romania", "bessarabia"], "SovietUnion"),
   T("caucasus", "Caucasus", "land", 4, 45, 43, ["russia", "ukraine", "samara", "kazakhstan", "iraq", "persia"], "SovietUnion"),

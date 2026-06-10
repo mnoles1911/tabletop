@@ -29,7 +29,10 @@ const STARTING_FORCES: Placement[] = [
 
   // Italy
   ["italy", [["infantry", 3], ["artillery", 1], ["fighter", 1], ["major_ic", 1]]],
+  ["northern_italy", [["infantry", 2], ["minor_ic", 1]]],
+  ["southern_italy", [["infantry", 1]]],
   ["libya", [["infantry", 2], ["tank", 1]]],
+  ["tobruk", [["infantry", 1]]],
   ["sz_med", [["cruiser", 1, "Italy"], ["destroyer", 1, "Italy"], ["transport", 1, "Italy"]]],
 
   // Soviet Union
@@ -66,6 +69,8 @@ const STARTING_FORCES: Placement[] = [
 
   // France
   ["france", [["infantry", 3], ["artillery", 1], ["fighter", 1]]],
+  ["normandy_bordeaux", [["infantry", 1]]],
+  ["southern_france", [["infantry", 1]]],
   ["algeria", [["infantry", 1]]],
 
   // ANZAC (Australia)
