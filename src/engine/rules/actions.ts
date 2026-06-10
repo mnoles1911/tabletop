@@ -2,7 +2,7 @@ import type { GameState, PowerId, UnitTypeId } from "../types.js";
 import { UNITS, PURCHASABLE } from "../data/units.js";
 import { POWERS } from "../data/powers.js";
 import { executeMove } from "./movement.js";
-import { resolveBattle } from "./combat.js";
+import { resolveBattle, stepBattle, retreatBattle } from "./combat.js";
 import { advancePhase, placeUnit, log } from "./phases.js";
 
 // ============================================================================
@@ -17,6 +17,8 @@ export type Action =
   | { kind: "cancel_purchases" }
   | { kind: "move"; from: string; to: string; unit: UnitTypeId; count: number }
   | { kind: "resolve_battle"; territory: string }
+  | { kind: "battle_round"; territory: string }
+  | { kind: "battle_retreat"; territory: string }
   | { kind: "place"; unit: UnitTypeId; territory: string }
   | { kind: "advance_phase" };
 
@@ -89,6 +91,24 @@ export function applyAction(state: GameState, action: Action, actor: PowerId): A
       battle.resolved = true;
       for (const line of result.text) log(state, line);
       return { ok: true };
+    }
+
+    case "battle_round": {
+      if (state.phase !== "combat") return { ok: false, error: "Battles resolve during the combat phase." };
+      const battle = state.combat.battles.find((b) => b.territory === action.territory);
+      if (!battle || battle.resolved) return { ok: false, error: "No unresolved battle there." };
+      const { notes } = stepBattle(state, action.territory);
+      for (const line of notes) log(state, line);
+      return { ok: true };
+    }
+
+    case "battle_retreat": {
+      if (state.phase !== "combat") return { ok: false, error: "Retreat happens during combat." };
+      const battle = state.combat.battles.find((b) => b.territory === action.territory);
+      if (!battle || battle.resolved) return { ok: false, error: "No unresolved battle there." };
+      const { ok, notes } = retreatBattle(state, action.territory);
+      for (const line of notes) log(state, line);
+      return ok ? { ok: true } : { ok: false, error: notes[0] };
     }
 
     case "place": {

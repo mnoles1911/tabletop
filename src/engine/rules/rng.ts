@@ -36,3 +36,38 @@ export function rollDice(state: GameState, n: number): number[] {
 /** Count how many of `rolls` are <= `target` (i.e. hits). */
 export const countHits = (rolls: number[], target: number): number =>
   rolls.filter((r) => r <= target).length;
+
+/**
+ * Resolve a salvo of dice whose hit-targets are `targets`. With Low Luck the
+ * total pips (sum of targets) are converted to guaranteed hits (pips / 6) plus
+ * a single rounding die for the remainder — the popular variance-reducing house
+ * rule. Otherwise each target rolls its own die. Returns the rolls shown to the
+ * player (Low Luck reports the single rounding roll) and the hit count.
+ */
+export function resolveSalvo(
+  state: GameState,
+  targets: number[],
+  lowLuck: boolean,
+): { rolls: number[]; hits: number } {
+  if (targets.length === 0) return { rolls: [], hits: 0 };
+  if (!lowLuck) {
+    const rolls: number[] = [];
+    let hits = 0;
+    for (const t of targets) {
+      const r = rollDie(state);
+      rolls.push(r);
+      if (r <= t) hits += 1;
+    }
+    return { rolls, hits };
+  }
+  const pips = targets.reduce((s, t) => s + t, 0);
+  let hits = Math.floor(pips / 6);
+  const remainder = pips % 6;
+  const rolls: number[] = [];
+  if (remainder > 0) {
+    const r = rollDie(state);
+    rolls.push(r);
+    if (r <= remainder) hits += 1;
+  }
+  return { rolls, hits };
+}

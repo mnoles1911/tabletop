@@ -160,9 +160,31 @@ export function placeUnit(
 
 // --- Victory ---------------------------------------------------------------
 
-/** Axis/Allies win by holding every enemy capital simultaneously. */
+/** Axis/Allies win by holding every enemy capital, or N victory cities. */
 export function checkVictory(state: GameState): void {
   if (state.winner) return;
+
+  if (state.options.victory.mode === "cities") {
+    const need = state.options.victory.cities;
+    const counts: Record<string, number> = { Axis: 0, Allies: 0 };
+    for (const ts of Object.values(state.territories)) {
+      if (TERRITORY_INDEX[ts.id]?.victoryCity && ts.controller) {
+        counts[POWERS[ts.controller].alliance] += 1;
+      }
+    }
+    if (counts.Axis >= need) {
+      state.winner = "Axis";
+      log(state, `AXIS VICTORY — ${counts.Axis} victory cities held.`);
+      return;
+    }
+    if (counts.Allies >= need) {
+      state.winner = "Allies";
+      log(state, `ALLIED VICTORY — ${counts.Allies} victory cities held.`);
+      return;
+    }
+    return;
+  }
+
   const capitals = Object.values(POWERS);
   const axisCapsHeldByAllies = capitals
     .filter((p) => p.alliance === "Axis")

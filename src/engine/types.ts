@@ -153,7 +153,38 @@ export interface PendingBattle {
   resolved: boolean;
   /** Set when this battle is an amphibious assault (carries shore bombard). */
   amphibious?: boolean;
+  /** True once opening fire (AA / sub surprise) has been applied. */
+  started?: boolean;
+  /** Regular combat rounds fought so far (for round-by-round resolution). */
+  roundsFought?: number;
+  /** The most recent round's dice, surfaced to the UI. */
+  lastRound?: {
+    attackerRolls: number[];
+    defenderRolls: number[];
+    attackerHits: number;
+    defenderHits: number;
+    notes: string[];
+  };
 }
+
+/** House rules & optional systems chosen at game creation. */
+export interface GameOptions {
+  /** Low Luck: convert pips to guaranteed hits + one rounding roll. */
+  lowLuck: boolean;
+  /** Grant National Objective income bonuses. */
+  nationalObjectives: boolean;
+  /** Enable the research & development spend (tech). */
+  research: boolean;
+  /** Victory: hold all enemy capitals, or N victory cities. */
+  victory: { mode: "capitals" | "cities"; cities: number };
+}
+
+export const DEFAULT_OPTIONS: GameOptions = {
+  lowLuck: false,
+  nationalObjectives: true,
+  research: false,
+  victory: { mode: "capitals", cities: 0 },
+};
 
 export interface CombatState {
   battles: PendingBattle[];
@@ -165,6 +196,8 @@ export interface GameState {
   schema: 1;
   /** Monotonic version; the server rejects stale-version actions. */
   version: number;
+  /** House rules selected for this game. */
+  options: GameOptions;
   round: number;
   activePower: PowerId;
   phase: Phase;

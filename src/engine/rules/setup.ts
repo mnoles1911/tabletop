@@ -1,10 +1,12 @@
 import type {
+  GameOptions,
   GameState,
   PowerId,
   TerritoryState,
   UnitStack,
   UnitTypeId,
 } from "../types.js";
+import { DEFAULT_OPTIONS } from "../types.js";
 import { TERRITORIES, TERRITORY_INDEX } from "../data/territories.js";
 import { POWERS, TURN_ORDER } from "../data/powers.js";
 
@@ -89,7 +91,10 @@ const ADJ = buildAdjacency();
 /** Public neighbour lookup used by the movement system. */
 export const neighbours = (id: string): string[] => Array.from(ADJ[id] ?? []);
 
-export function createInitialState(seed = Date.now() & 0xffffffff): GameState {
+export function createInitialState(
+  seed = Date.now() & 0xffffffff,
+  options: GameOptions = DEFAULT_OPTIONS,
+): GameState {
   const territories: Record<string, TerritoryState> = {};
   for (const t of TERRITORIES) {
     territories[t.id] = {
@@ -117,6 +122,7 @@ export function createInitialState(seed = Date.now() & 0xffffffff): GameState {
   return {
     schema: 1,
     version: 1,
+    options,
     round: 1,
     activePower: TURN_ORDER[0],
     phase: "purchase",

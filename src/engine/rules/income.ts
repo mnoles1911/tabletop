@@ -21,8 +21,30 @@ export function territoryIncome(state: GameState, power: PowerId): number {
   return total;
 }
 
+// A representative set of National Objectives mapped onto this map's territory
+// ids. Each grants bonus IPC while the power controls the listed territories.
+// (Gated behind the `nationalObjectives` option; extend freely.)
+const NATIONAL_OBJECTIVES: Partial<Record<PowerId, Array<{ bonus: number; controls: string[] }>>> = {
+  Germany: [{ bonus: 5, controls: ["russia"] }, { bonus: 3, controls: ["egypt"] }],
+  Japan: [{ bonus: 5, controls: ["india"] }, { bonus: 5, controls: ["szechwan"] }],
+  Italy: [{ bonus: 5, controls: ["egypt"] }],
+  SovietUnion: [{ bonus: 3, controls: ["germany"] }],
+  UnitedStates: [{ bonus: 5, controls: ["philippines"] }],
+  UnitedKingdom: [{ bonus: 3, controls: ["france"] }],
+};
+
+export function nationalObjectiveBonus(state: GameState, power: PowerId): number {
+  if (!state.options.nationalObjectives) return 0;
+  const objectives = NATIONAL_OBJECTIVES[power] ?? [];
+  let bonus = 0;
+  for (const o of objectives) {
+    if (o.controls.every((id) => state.territories[id]?.controller === power)) bonus += o.bonus;
+  }
+  return bonus;
+}
+
 /** Income actually banked this turn (0 if the capital is in enemy hands). */
 export function collectibleIncome(state: GameState, power: PowerId): number {
   if (!controlsOwnCapital(state, power)) return 0;
-  return territoryIncome(state, power);
+  return territoryIncome(state, power) + nationalObjectiveBonus(state, power);
 }

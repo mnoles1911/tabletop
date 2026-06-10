@@ -6,6 +6,8 @@ import {
   TURN_ORDER,
   TERRITORY_INDEX,
   collectibleIncome,
+  territoryIncome,
+  nationalObjectiveBonus,
   type Action,
   type GameState,
   type PowerId,
@@ -15,6 +17,7 @@ import type { GameView } from "../api.js";
 
 interface Props {
   view: GameView;
+  canAct: boolean;
   selectedTerr: string | null;
   selectedUnit: UnitTypeId | null;
   selectedCount: number;
@@ -36,31 +39,31 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 export function Sidebar(props: Props) {
-  const { view, act, busy } = props;
-  const { state, you } = view;
-  const isYourTurn = you === state.activePower;
+  const { view, act, busy, canAct } = props;
+  const { state } = view;
+  const youSet = new Set(view.youPowers);
 
   return (
     <aside className="sidebar">
       <header>
         <div>
-          <div className="phase-pill">Round {state.round}</div>{" "}
+          <span className="phase-pill">Round {state.round}</span>{" "}
           <span className="active-power" style={{ color: POWERS[state.activePower].color }}>
             {POWERS[state.activePower].display}
           </span>
         </div>
-        <div className="phase-pill">{PHASE_LABEL[state.phase]}</div>
+        <span className="phase-pill">{PHASE_LABEL[state.phase]}</span>
       </header>
 
       <div className="scroll">
-        {you ? (
-          <div className="hint">
-            You are <b style={{ color: POWERS[you].color }}>{POWERS[you].display}</b>.{" "}
-            {isYourTurn ? "It's your move." : `Waiting for ${POWERS[state.activePower].display}.`}
-          </div>
-        ) : (
-          <div className="hint">Spectating — open a seat to play.</div>
-        )}
+        <div className="hint">
+          {canAct
+            ? "Your move — act for the highlighted power."
+            : `Waiting for ${POWERS[state.activePower].display}.`}
+          {view.youPowers.length > 0 && (
+            <> You control: {view.youPowers.map((p) => POWERS[p].display).join(", ")}.</>
+          )}
+        </div>
 
         {state.winner && (
           <div className="card mt" style={{ minWidth: 0, borderColor: "var(--gold)" }}>
@@ -68,23 +71,15 @@ export function Sidebar(props: Props) {
           </div>
         )}
 
-        {/* Phase-specific controls (only when it's your turn) */}
-        {isYourTurn && !state.winner && (
-          <PhasePanel {...props} />
-        )}
+        {canAct && !state.winner && <PhasePanel {...props} />}
 
-        <Treasury state={state} you={you} />
+        <Treasury state={state} youSet={youSet} />
         <Log state={state} />
       </div>
 
-      {isYourTurn && !state.winner && (
-        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--line)" }}>
-          <button
-            className="gold"
-            style={{ width: "100%" }}
-            disabled={busy}
-            onClick={() => act({ kind: "advance_phase" })}
-          >
+      {canAct && !state.winner && (
+        <div className="sidebar-foot">
+          <button className="gold" style={{ width: "100%" }} disabled={busy} onClick={() => act({ kind: "advance_phase" })}>
             {state.phase === "collect_income" ? "End Turn ▸" : `Finish ${PHASE_LABEL[state.phase]} ▸`}
           </button>
         </div>
@@ -94,32 +89,25 @@ export function Sidebar(props: Props) {
 }
 
 function PhasePanel(props: Props) {
-  const { state } = props.view;
-  switch (state.phase) {
-    case "purchase":
-      return <PurchasePanel {...props} />;
+  switch (props.view.state.phase) {
+    case "purchase": return <PurchasePanel {...props} />;
     case "combat_move":
-    case "noncombat_move":
-      return <MovePanel {...props} />;
-    case "combat":
-      return <CombatPanel {...props} />;
-    case "mobilize":
-      return <MobilizePanel {...props} />;
-    case "collect_income":
-      return <IncomePanel {...props} />;
-    default:
-      return null;
+    case "noncombat_move": return <MovePanel {...props} />;
+    case "combat": return <CombatPanel {...props} />;
+    case "mobilize": return <MobilizePanel {...props} />;
+    case "collect_income": return <IncomePanel {...props} />;
+    default: return null;
   }
 }
 
 // --- Purchase --------------------------------------------------------------
 function PurchasePanel({ view, act, busy }: Props) {
-  const { state, you } = view;
+  const { state, youPowers } = view;
+  const active = state.activePower;
   const [cart, setCart] = useState<Record<string, number>>({});
   const total = Object.entries(cart).reduce((s, [t, n]) => s + UNITS[t as UnitTypeId].cost * n, 0);
-  const treasury = you ? state.treasury[you] : 0;
-  const bump = (t: UnitTypeId, d: number) =>
-    setCart((c) => ({ ...c, [t]: Math.max(0, (c[t] ?? 0) + d) }));
+  const treasury = state.treasury[active];
+  const bump = (t: UnitTypeId, d: number) => setCart((c) => ({ ...c, [t]: Math.max(0, (c[t] ?? 0) + d) }));
 
   return (
     <div>
@@ -128,9 +116,7 @@ function PurchasePanel({ view, act, busy }: Props) {
         const u = UNITS[t];
         return (
           <div className="buy-row" key={t}>
-            <span>
-              {u.display} <span className="hint">({u.cost})</span>
-            </span>
+            <span>{u.display} <span className="hint">({u.cost})</span></span>
             <span className="qty">
               <button onClick={() => bump(t, -1)} disabled={!cart[t]}>−</button>
               <b>{cart[t] ?? 0}</b>
@@ -147,26 +133,17 @@ function PurchasePanel({ view, act, busy }: Props) {
             className="primary"
             disabled={busy || total === 0}
             onClick={() => {
-              const units = Object.entries(cart)
-                .filter(([, n]) => n > 0)
-                .map(([type, count]) => ({ type: type as UnitTypeId, count }));
+              const units = Object.entries(cart).filter(([, n]) => n > 0).map(([type, count]) => ({ type: type as UnitTypeId, count }));
               act({ kind: "buy", units });
               setCart({});
             }}
-          >
-            Buy
-          </button>
+          >Buy</button>
         </div>
       </div>
       {state.purchases.length > 0 && (
         <div className="hint mt">
-          Queued for mobilize:{" "}
-          {state.purchases.map((p) => `${p.count}× ${UNITS[p.type].display}`).join(", ")}
-          <div>
-            <button className="mt" onClick={() => act({ kind: "cancel_purchases" })} disabled={busy}>
-              Refund all
-            </button>
-          </div>
+          Queued: {state.purchases.map((p) => `${p.count}× ${UNITS[p.type].display}`).join(", ")}
+          <div><button className="mt" onClick={() => act({ kind: "cancel_purchases" })} disabled={busy}>Refund all</button></div>
         </div>
       )}
     </div>
@@ -174,27 +151,19 @@ function PurchasePanel({ view, act, busy }: Props) {
 }
 
 // --- Movement --------------------------------------------------------------
-function MovePanel(props: Props) {
-  const { view, selectedTerr, selectedUnit, selectedCount, setSelectedUnit, setSelectedCount } = props;
-  const { state, you } = view;
-  if (!selectedTerr) {
-    return <div className="hint mt">Click a territory with your units to move them.</div>;
-  }
-  const ts = state.territories[selectedTerr];
-  const yours = ts.units.filter((u) => u.owner === you);
+function MovePanel({ view, selectedTerr, selectedUnit, selectedCount, setSelectedUnit, setSelectedCount }: Props) {
+  const { state } = view;
+  const active = state.activePower;
+  if (!selectedTerr) return <div className="hint mt">Tap a territory with your units to move them.</div>;
+  const yours = state.territories[selectedTerr].units.filter((u) => u.owner === active);
   return (
     <div>
       <div className="section-title">Move from {TERRITORY_INDEX[selectedTerr].display}</div>
       {yours.length === 0 && <div className="hint">No units of yours here.</div>}
       {yours.map((u) => (
-        <div
-          className="buy-row"
-          key={u.type}
-          style={{ borderColor: selectedUnit === u.type ? "var(--gold)" : undefined }}
-        >
+        <div className="buy-row" key={u.type} style={{ borderColor: selectedUnit === u.type ? "var(--gold)" : undefined }}>
           <label className="row" style={{ cursor: "pointer" }} onClick={() => { setSelectedUnit(u.type); setSelectedCount(Math.min(selectedCount || 1, u.count)); }}>
-            <input type="radio" checked={selectedUnit === u.type} readOnly />
-            {UNITS[u.type].display} ×{u.count}
+            <input type="radio" checked={selectedUnit === u.type} readOnly /> {UNITS[u.type].display} ×{u.count}
           </label>
           {selectedUnit === u.type && (
             <span className="qty">
@@ -205,35 +174,36 @@ function MovePanel(props: Props) {
           )}
         </div>
       ))}
-      {selectedUnit && (
-        <div className="hint mt">
-          Now click a green destination on the map to move {selectedCount}× {UNITS[selectedUnit].display}.
-        </div>
-      )}
+      {selectedUnit && <div className="hint mt">Tap a green destination to move {selectedCount}× {UNITS[selectedUnit].display}.</div>}
     </div>
   );
 }
 
-// --- Combat ----------------------------------------------------------------
+// --- Combat (interactive: fight a round, retreat, or auto-resolve) ----------
 function CombatPanel({ view, act, busy }: Props) {
   const { state } = view;
   const battles = state.combat.battles.filter((b) => !b.resolved);
-  if (battles.length === 0) {
-    return <div className="hint mt">No battles to resolve. Finish the phase to continue.</div>;
-  }
+  if (battles.length === 0) return <div className="hint mt">No battles left. Finish the phase to continue.</div>;
   return (
     <div>
-      <div className="section-title">Pending battles</div>
+      <div className="section-title">Battles</div>
       {battles.map((b) => (
-        <div className="buy-row" key={b.territory}>
-          <span>{TERRITORY_INDEX[b.territory].display}</span>
-          <button
-            className="primary"
-            disabled={busy}
-            onClick={() => act({ kind: "resolve_battle", territory: b.territory })}
-          >
-            ⚔ Resolve
-          </button>
+        <div className="battle-card" key={b.territory}>
+          <div className="spread">
+            <b>{TERRITORY_INDEX[b.territory].display}</b>
+            <span className="hint">round {b.roundsFought ?? 0}</span>
+          </div>
+          {b.lastRound && (
+            <div className="dice-line">
+              <span>🎲 atk {b.lastRound.attackerRolls.join(",") || "—"} → {b.lastRound.attackerHits} hit</span>
+              <span>🛡 def {b.lastRound.defenderRolls.join(",") || "—"} → {b.lastRound.defenderHits} hit</span>
+            </div>
+          )}
+          <div className="row mt" style={{ flexWrap: "wrap", gap: 6 }}>
+            <button className="primary" disabled={busy} onClick={() => act({ kind: "battle_round", territory: b.territory })}>⚔ Fight round</button>
+            <button disabled={busy} onClick={() => act({ kind: "battle_retreat", territory: b.territory })}>🏳 Retreat</button>
+            <button disabled={busy} onClick={() => act({ kind: "resolve_battle", territory: b.territory })}>⏩ Auto</button>
+          </div>
         </div>
       ))}
     </div>
@@ -241,58 +211,50 @@ function CombatPanel({ view, act, busy }: Props) {
 }
 
 // --- Mobilize --------------------------------------------------------------
-function MobilizePanel(props: Props) {
-  const { view, mobilizeUnit, setMobilizeUnit } = props;
+function MobilizePanel({ view, mobilizeUnit, setMobilizeUnit }: Props) {
   const { state } = view;
-  if (state.purchases.length === 0) {
-    return <div className="hint mt">Nothing left to place. Finish the phase.</div>;
-  }
+  if (state.purchases.length === 0) return <div className="hint mt">Nothing left to place. Finish the phase.</div>;
   return (
     <div>
       <div className="section-title">Place purchased units</div>
       {state.purchases.map((p) => (
-        <div
-          className="buy-row"
-          key={p.type}
-          style={{ borderColor: mobilizeUnit === p.type ? "var(--gold)" : undefined }}
-          onClick={() => setMobilizeUnit(p.type)}
-        >
-          <span>{UNITS[p.type].display}</span>
-          <b>×{p.count}</b>
+        <div className="buy-row" key={p.type} style={{ borderColor: mobilizeUnit === p.type ? "var(--gold)" : undefined }} onClick={() => setMobilizeUnit(p.type)}>
+          <span>{UNITS[p.type].display}</span><b>×{p.count}</b>
         </div>
       ))}
-      {mobilizeUnit && (
-        <div className="hint mt">Click a highlighted factory/territory to place {UNITS[mobilizeUnit].display}.</div>
-      )}
+      {mobilizeUnit && <div className="hint mt">Tap a highlighted factory/territory to place {UNITS[mobilizeUnit].display}.</div>}
     </div>
   );
 }
 
 // --- Income ----------------------------------------------------------------
 function IncomePanel({ view }: Props) {
-  const { state, you } = view;
-  const income = you ? collectibleIncome(state, state.activePower) : 0;
+  const { state } = view;
+  const active = state.activePower;
+  const base = territoryIncome(state, active);
+  const no = nationalObjectiveBonus(state, active);
+  const total = collectibleIncome(state, active);
   return (
     <div className="hint mt">
-      This turn {POWERS[state.activePower].display} will bank <b style={{ color: "var(--gold)" }}>{income} IPC</b>.
-      End the turn to collect and pass play.
+      Territory income: <b>{base}</b>{no > 0 && <> + National Objectives <b style={{ color: "var(--gold)" }}>{no}</b></>}.
+      <br />This turn {POWERS[active].display} banks <b style={{ color: "var(--gold)" }}>{total} IPC</b>. End the turn to collect.
     </div>
   );
 }
 
 // --- Treasury & Log --------------------------------------------------------
-function Treasury({ state, you }: { state: GameState; you: PowerId | null }) {
+function Treasury({ state, youSet }: { state: GameState; youSet: Set<PowerId> }) {
   return (
     <div>
       <div className="section-title">Treasuries</div>
       <div className="treasury-grid">
         {TURN_ORDER.map((p) => (
           <React.Fragment key={p}>
-            <span className={you === p ? "you" : ""}>
+            <span className={youSet.has(p) ? "you" : ""}>
               <span className="swatch" style={{ background: POWERS[p].color }} />
               {POWERS[p].display}
             </span>
-            <span className={you === p ? "you" : ""}>{state.treasury[p]}</span>
+            <span className={youSet.has(p) ? "you" : ""}>{state.treasury[p]}</span>
           </React.Fragment>
         ))}
       </div>

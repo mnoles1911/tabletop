@@ -1,4 +1,4 @@
-import type { Action, GameState, PowerId } from "@engine/index";
+import type { Action, GameOptions, GameState, PowerId } from "@engine/index";
 
 // Thin fetch wrapper around the play-by-cloud REST API.
 
@@ -10,9 +10,12 @@ export interface Seat {
 
 export interface GameView {
   gameId: string;
+  started: boolean;
+  options: GameOptions;
   state: GameState;
   seats: Seat[];
-  you: PowerId | null;
+  youPowers: PowerId[];
+  youJoined: boolean;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -22,18 +25,49 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  async createGame(): Promise<string> {
-    const res = await fetch("/api/games", { method: "POST" });
+  async createGame(options: Partial<GameOptions>): Promise<string> {
+    const res = await fetch("/api/games", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ options }),
+    });
     return (await json<{ gameId: string }>(res)).gameId;
   },
 
-  async join(gameId: string, power: PowerId, name: string): Promise<{ token: string }> {
+  async join(gameId: string, name: string, token: string | null): Promise<{ token: string; powers: PowerId[] }> {
     const res = await fetch(`/api/games/${gameId}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power, name }),
+      body: JSON.stringify({ name, token }),
     });
-    return json<{ token: string }>(res);
+    return json<{ token: string; powers: PowerId[] }>(res);
+  },
+
+  async claim(gameId: string, token: string, power: PowerId): Promise<{ powers: PowerId[]; seats: Seat[] }> {
+    const res = await fetch(`/api/games/${gameId}/claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, power }),
+    });
+    return json<{ powers: PowerId[]; seats: Seat[] }>(res);
+  },
+
+  async release(gameId: string, token: string, power: PowerId): Promise<{ powers: PowerId[]; seats: Seat[] }> {
+    const res = await fetch(`/api/games/${gameId}/release`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, power }),
+    });
+    return json<{ powers: PowerId[]; seats: Seat[] }>(res);
+  },
+
+  async start(gameId: string, token: string): Promise<void> {
+    const res = await fetch(`/api/games/${gameId}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    await json(res);
   },
 
   async fetchGame(gameId: string, token: string | null): Promise<GameView> {
