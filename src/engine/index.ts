@@ -17,6 +17,7 @@ export {
   collectibleIncome,
   controlsOwnCapital,
   nationalObjectiveBonus,
+  convoyLoss,
 } from "./rules/income.js";
 export {
   advancePhase,

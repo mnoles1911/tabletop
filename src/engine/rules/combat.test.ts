@@ -89,3 +89,27 @@ test("factory production capacity limits placement", () => {
   assert.equal(applyAction(s, { kind: "place", unit: "infantry", territory: "germany" }, "Germany").ok, true);
   assert.equal(s.placement["germany"], 1);
 });
+
+test("moving a land unit into undefended enemy land captures it", () => {
+  const s = createInitialState(42);
+  s.activePower = "Germany";
+  s.phase = "combat_move";
+  // Norway is German already; use an undefended neutral instead: Spain (no owner).
+  // Put a German infantry in adjacent France (German? no, France is French). Use
+  // poland (German) -> baltic_states (Soviet) only if undefended. Empty a target:
+  s.territories["baltic_states"].units = []; // undefended Soviet land
+  const r = applyAction(s, { kind: "move", from: "poland", to: "baltic_states", unit: "infantry", count: 1 }, "Germany");
+  assert.equal(r.ok, true);
+  assert.equal(s.territories["baltic_states"].controller, "Germany");
+});
+
+test("annexing a neutral by walking in takes control", () => {
+  const s = createInitialState(42);
+  s.activePower = "Germany";
+  s.phase = "noncombat_move";
+  s.territories["france"].units.push({ type: "infantry", owner: "Germany", count: 1 });
+  // Spain is a neutral (no owner) adjacent to France.
+  const r = applyAction(s, { kind: "move", from: "france", to: "spain", unit: "infantry", count: 1 }, "Germany");
+  assert.equal(r.ok, true);
+  assert.equal(s.territories["spain"].controller, "Germany");
+});

@@ -1,8 +1,9 @@
 import type { GameState, PowerId, UnitTypeId } from "../types.js";
 import { UNITS } from "../data/units.js";
-import { areEnemies } from "../data/powers.js";
+import { areAllied, areEnemies } from "../data/powers.js";
 import { TERRITORY_INDEX, isSea } from "../data/territories.js";
 import { neighbours, addUnits, removeUnits } from "./setup.js";
+import { captureTerritory } from "./control.js";
 
 // ============================================================================
 // Movement system. Validates and executes a move of a homogeneous group of
@@ -129,6 +130,15 @@ export function executeMove(state: GameState, owner: PowerId, req: MoveRequest):
     const existing = state.combat.battles.find((b) => b.territory === req.to);
     if (!existing) {
       state.combat.battles.push({ territory: req.to, attacker: owner, resolved: false });
+    }
+  } else if (UNITS[req.type].domain === "land" && !isSea(req.to)) {
+    // A land unit ending its move on undefended land that isn't already ours
+    // (or an ally's) takes control: capturing empty enemy land, liberating an
+    // ally's, or annexing a neutral.
+    const controller = dst.controller;
+    const hasEnemies = dst.units.some((u) => areEnemies(u.owner, owner));
+    if (!hasEnemies && (!controller || (controller !== owner && !areAllied(controller, owner)))) {
+      captureTerritory(state, dst, owner, []);
     }
   }
   return check;

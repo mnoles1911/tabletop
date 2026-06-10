@@ -6,6 +6,7 @@ import { rollDie, resolveSalvo } from "./rng.js";
 import { neighbours } from "./setup.js";
 import { hasTech } from "./research.js";
 import { resolveSBR } from "./sbr.js";
+import { captureTerritory } from "./control.js";
 
 // ============================================================================
 // General combat — faithful to Global 1940, supporting one-click auto-resolve
@@ -264,23 +265,6 @@ function healTwoHit(ts: TerritoryState): void {
     merged[key].count += s.count;
   }
   ts.units = Object.values(merged);
-}
-
-function captureTerritory(state: GameState, ts: TerritoryState, conqueror: PowerId, notes: string[]): void {
-  const previous = ts.controller;
-  ts.controller = conqueror;
-  ts.factoryDamage = 0;
-  notes.push(`${POWERS[conqueror].display} captures ${ts.id}.`);
-  for (const p of Object.values(POWERS)) {
-    if (p.capital === ts.id && previous && areEnemies(conqueror, previous)) {
-      const looted = state.treasury[previous] ?? 0;
-      if (looted > 0) {
-        state.treasury[conqueror] += looted;
-        state.treasury[previous] = 0;
-        notes.push(`${POWERS[conqueror].display} loots ${looted} IPC from ${POWERS[previous].display}'s capital!`);
-      }
-    }
-  }
 }
 
 // --- public API ------------------------------------------------------------
