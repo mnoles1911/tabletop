@@ -113,19 +113,27 @@ input, select {
   padding: 8px 14px; border-radius: 8px; z-index: 20;
 }
 
-/* ---- SVG board -------------------------------------------------------- */
+/* ---- SVG world map (Voronoi provinces) ------------------------------- */
 svg.map { width: 100%; height: 100%; display: block; }
-.terr { cursor: pointer; }
-.terr-shape { stroke: #0a1322; stroke-width: .25; transition: filter .1s; }
-.terr:hover .terr-shape { filter: brightness(1.25); }
-.terr.selected .terr-shape { stroke: var(--gold); stroke-width: .9; }
-.terr.target .terr-shape { stroke: var(--ok); stroke-width: .9; }
-.terr.battle .terr-shape { stroke: var(--danger); stroke-width: 1; }
-.terr-label { font-size: 1.7px; fill: var(--ink); pointer-events: none; text-anchor: middle; }
-.terr-units { font-size: 1.7px; fill: #fff; pointer-events: none; text-anchor: middle; font-weight: 700; }
-.terr-ipc { font-size: 1.4px; fill: var(--gold); pointer-events: none; text-anchor: middle; }
-.adj-line { stroke: #24405f; stroke-width: .12; }
-.cap-star { font-size: 2.4px; fill: var(--gold); pointer-events: none; text-anchor: middle; }
+
+.province { cursor: pointer; transition: filter .1s; }
+.province.land { stroke: #0a1626; stroke-width: .18; stroke-linejoin: round; }
+.province.sea { stroke: #234d72; stroke-width: .12; opacity: .9; }
+.province:hover { filter: brightness(1.18); }
+.province.selected { stroke: var(--gold); stroke-width: .7; }
+.province.target { stroke: var(--ok); stroke-width: .7; }
+.province.battle { stroke: var(--danger); stroke-width: .8; }
+
+.terr-label {
+  font-size: 1.7px; fill: #f2f6fc; pointer-events: none; text-anchor: middle;
+  font-weight: 600; paint-order: stroke; stroke: #07182a; stroke-width: .35px; stroke-linejoin: round;
+}
+.sea-label { fill: #8fb2d6; font-style: italic; font-weight: 500; opacity: .8; }
+.terr-units { font-size: 1.9px; fill: #fff; pointer-events: none; text-anchor: middle; font-weight: 800; }
+.unit-chip { fill: rgba(10,18,32,.82); stroke: rgba(255,255,255,.35); stroke-width: .12; }
+.terr-ipc { font-size: 1.4px; fill: var(--gold); pointer-events: none; text-anchor: middle; font-weight: 700; }
+.adj-line { stroke: #2a4a6e; stroke-width: .1; opacity: .5; stroke-dasharray: .6 .6; }
+.cap-star { font-size: 2.6px; fill: var(--gold); pointer-events: none; text-anchor: middle; paint-order: stroke; stroke: #07182a; stroke-width: .3px; }
 
 .hint { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .link-box { display: flex; gap: 6px; }
