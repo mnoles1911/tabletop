@@ -125,8 +125,8 @@ svg.map { width: 100%; height: 100%; display: block; }
 .province.battle { stroke: var(--danger); stroke-width: .8; }
 
 .terr-label {
-  font-size: 1.7px; fill: #f2f6fc; pointer-events: none; text-anchor: middle;
-  font-weight: 600; paint-order: stroke; stroke: #07182a; stroke-width: .35px; stroke-linejoin: round;
+  font-size: 1.45px; fill: #f4f7fc; pointer-events: none; text-anchor: middle;
+  font-weight: 600; paint-order: stroke; stroke: #06121f; stroke-width: .4px; stroke-linejoin: round;
 }
 .sea-label { fill: #8fb2d6; font-style: italic; font-weight: 500; opacity: .8; }
 .terr-units { font-size: 1.9px; fill: #fff; pointer-events: none; text-anchor: middle; font-weight: 800; }

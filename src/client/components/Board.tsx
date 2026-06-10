@@ -18,13 +18,18 @@ interface Props {
   onPick: (territoryId: string) => void;
 }
 
-// The board is a Voronoi tessellation of the territory positions: every land
-// territory and sea zone becomes a province cell with real boundary edges,
-// tiling the whole world map. Land cells are coloured by controller, sea cells
-// are ocean blue, and each cell is labelled at its centre. Movement links from
-// the rules graph are drawn faintly on top so sea lanes / canals are legible.
+// The board is a photorealistic equirectangular satellite map (NASA Blue
+// Marble) with the A&A provinces drawn on top as a Voronoi tessellation of the
+// territory positions: every land territory and sea zone is a province cell
+// with real boundary edges. Control is shown as a translucent colour wash so
+// the terrain stays visible; each cell is labelled at its centre.
 
 const BOUNDS: [number, number, number, number] = [-4, -4, 104, 104];
+// Earth image alignment: see territories.ts projection (left edge = 170°W).
+const EARTH_X = -2.778;
+const EARTH_Y = 25;
+const EARTH_H = 50;
+const EARTH_SRC = `${import.meta.env.BASE_URL}earth.jpg`;
 
 function controllerColor(state: GameState, id: string): string {
   if (isSea(id)) return "#163a5c";
@@ -188,21 +193,27 @@ export function Board({ state, selected, targets, battles, onPick }: Props) {
         <rect x={BOUNDS[0]} y={BOUNDS[1]} width={BOUNDS[2] - BOUNDS[0]} height={BOUNDS[3] - BOUNDS[1]} fill="url(#oceanGrad)" />
 
         <g transform={`translate(${vt.t.x} ${vt.t.y}) scale(${vt.t.s})`}>
-          {/* Sea province cells first (background ocean tiles) */}
+          {/* Photorealistic Earth, tiled horizontally so it wraps cleanly */}
+          {[-100, 0, 100].map((dx) => (
+            <image key={dx} href={EARTH_SRC} x={EARTH_X + dx} y={EARTH_Y} width={100} height={EARTH_H} preserveAspectRatio="none" opacity={0.92} />
+          ))}
+
+          {/* Sea province cells (translucent so ocean shows through) */}
           {cells.filter((c) => c.sea).map((c) => {
             const cls = ["province", "sea", selected === c.id ? "selected" : "", targets.has(c.id) ? "target" : "", battles.has(c.id) ? "battle" : ""].join(" ").trim();
-            return <path key={c.id} className={cls} d={c.path} fill={controllerColor(state, c.id)} onClick={() => pick(c.id)} />;
+            const tinted = state.territories[c.id]?.controller;
+            return <path key={c.id} className={cls} d={c.path} fill={controllerColor(state, c.id)} fillOpacity={tinted ? 0.3 : 0.12} onClick={() => pick(c.id)} />;
           })}
 
-          {/* Faint movement links */}
-          {edges.map((e, i) => (
+          {/* Faint movement links (skip cross-map wrap segments) */}
+          {edges.filter((e) => Math.abs(e.x1 - e.x2) < 40).map((e, i) => (
             <line key={i} className="adj-line" x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} />
           ))}
 
-          {/* Land province cells */}
+          {/* Land province cells (translucent control wash over the terrain) */}
           {cells.filter((c) => !c.sea).map((c) => {
             const cls = ["province", "land", selected === c.id ? "selected" : "", targets.has(c.id) ? "target" : "", battles.has(c.id) ? "battle" : ""].join(" ").trim();
-            return <path key={c.id} className={cls} d={c.path} fill={controllerColor(state, c.id)} filter="url(#landShadow)" onClick={() => pick(c.id)} />;
+            return <path key={c.id} className={cls} d={c.path} fill={controllerColor(state, c.id)} fillOpacity={0.46} onClick={() => pick(c.id)} />;
           })}
 
           {/* Labels, unit chips, capital stars */}

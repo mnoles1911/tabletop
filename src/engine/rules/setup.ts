@@ -82,6 +82,23 @@ const STARTING_FORCES: Placement[] = [
   ["hawaii", [["infantry", 1], ["fighter", 1]]],
   ["siberia", [["infantry", 2]]],
   ["kazakhstan", [["infantry", 1]]],
+
+  // World-map fill garrisons
+  ["alaska", [["infantry", 1]]],
+  ["panama", [["infantry", 1]]],
+  ["malaya", [["infantry", 1]]],
+  ["anglo_sudan", [["infantry", 1]]],
+  ["rhodesia", [["infantry", 1]]],
+  ["trans_jordan", [["infantry", 1]]],
+  ["east_africa", [["infantry", 1]]],
+  ["french_indochina", [["infantry", 1]]],
+  ["formosa", [["infantry", 1]]],
+  ["okinawa", [["infantry", 1]]],
+  ["marianas", [["infantry", 1]]],
+  ["archangel", [["infantry", 1]]],
+  ["samara", [["infantry", 1]]],
+  ["soviet_far_east", [["infantry", 2]]],
+  ["midway", [["infantry", 1]]],
 ];
 
 /** Symmetrise the adjacency graph so every link is bidirectional. */
