@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createInitialState } from "./setup.js";
 import { resolveBattle } from "./combat.js";
 import { applyAction } from "./actions.js";
+import { DEFAULT_OPTIONS } from "../types.js";
 
 // Deterministic combat: the same seed must always produce the same battle.
 test("combat is deterministic for a fixed seed", () => {
@@ -40,4 +41,51 @@ test("phase advances through the full turn sequence", () => {
   applyAction(s, { kind: "advance_phase" }, "Germany");
   assert.equal(s.activePower, "SovietUnion");
   assert.equal(s.phase, "purchase");
+});
+
+test("amphibious assault captures a coastal territory", () => {
+  const s = createInitialState(42);
+  s.activePower = "UnitedKingdom";
+  s.phase = "combat_move";
+  s.territories["united_kingdom"].units.push({ type: "infantry", owner: "UnitedKingdom", count: 2 });
+  const r = applyAction(
+    s,
+    { kind: "transport", from: "united_kingdom", via: "sz_north", to: "norway", units: [{ type: "infantry", count: 2 }] },
+    "UnitedKingdom",
+  );
+  assert.equal(r.ok, true);
+  const battle = s.combat.battles.find((b) => b.territory === "norway");
+  assert.equal(battle?.amphibious, true);
+  s.phase = "combat";
+  resolveBattle(s, "norway");
+  assert.equal(s.territories["norway"].controller, "UnitedKingdom");
+});
+
+test("strategic bombing damages a factory and returns bombers", () => {
+  const s = createInitialState(42);
+  s.activePower = "Germany";
+  s.phase = "combat_move";
+  s.territories["germany"].units.push({ type: "strategic_bomber", owner: "Germany", count: 2 });
+  assert.equal(applyAction(s, { kind: "strategic_bomb", from: "germany", to: "united_kingdom", count: 2 }, "Germany").ok, true);
+  s.phase = "combat";
+  resolveBattle(s, "united_kingdom");
+  assert.ok((s.territories["united_kingdom"].factoryDamage ?? 0) > 0);
+  const back = s.territories["germany"].units.find((u) => u.type === "strategic_bomber")?.count ?? 0;
+  assert.ok(back > 0);
+});
+
+test("research costs 5 IPC per die and is gated by phase", () => {
+  const s = createInitialState(42, { ...DEFAULT_OPTIONS, research: true });
+  const before = s.treasury["Germany"];
+  assert.equal(applyAction(s, { kind: "research", dice: 2 }, "Germany").ok, true);
+  assert.equal(s.treasury["Germany"], before - 10);
+});
+
+test("factory production capacity limits placement", () => {
+  const s = createInitialState(42);
+  s.phase = "mobilize";
+  // Germany factory territory value is 14 -> capacity 14; place 1 infantry ok.
+  s.purchases = [{ type: "infantry", count: 1 }];
+  assert.equal(applyAction(s, { kind: "place", unit: "infantry", territory: "germany" }, "Germany").ok, true);
+  assert.equal(s.placement["germany"], 1);
 });

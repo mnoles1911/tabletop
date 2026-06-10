@@ -5,6 +5,8 @@ import { TERRITORY_INDEX, isSea } from "../data/territories.js";
 import { neighbours, addUnits, removeUnits } from "./setup.js";
 import { collectibleIncome, controlsOwnCapital } from "./income.js";
 import { resolveBattle } from "./combat.js";
+import { rollDie } from "./rng.js";
+import { hasTech } from "./research.js";
 
 // ============================================================================
 // Turn structure & phase transitions for Global 1940:
@@ -45,9 +47,15 @@ export function advancePhase(state: GameState): void {
 
   // Leaving collect_income: bank IPC and pass the turn.
   if (state.phase === "collect_income") {
-    const income = collectibleIncome(state, state.activePower);
-    state.treasury[state.activePower] += income;
-    log(state, `${POWERS[state.activePower].display} collects ${income} IPC.`);
+    const power = state.activePower;
+    let income = collectibleIncome(state, power);
+    if (controlsOwnCapital(state, power) && hasTech(state, power, "war_bonds")) {
+      const bond = rollDie(state);
+      income += bond;
+      log(state, `${POWERS[power].display} War Bonds yield ${bond} IPC.`);
+    }
+    state.treasury[power] += income;
+    log(state, `${POWERS[power].display} collects ${income} IPC.`);
     endTurn(state);
     return;
   }
@@ -69,8 +77,10 @@ function labelFor(phase: Phase): string {
 
 /** Hand the turn to the next non-eliminated power, advancing the round on wrap. */
 function endTurn(state: GameState): void {
-  // Clear any unplaced purchases (forfeited if not mobilized).
+  // Clear any unplaced purchases (forfeited if not mobilized) and per-turn scratch.
   state.purchases = [];
+  state.transportUse = {};
+  state.placement = {};
 
   let curIdx = TURN_ORDER.indexOf(state.activePower);
   for (let i = 0; i < TURN_ORDER.length; i++) {
@@ -139,6 +149,23 @@ export interface PlaceResult {
   reason?: string;
 }
 
+/** A factory's base production capacity before strategic-bombing damage. */
+export function factoryCapacity(state: GameState, power: PowerId, territory: string): number {
+  const ts = state.territories[territory];
+  const major = ts.units.some((u) => u.type === "major_ic" && u.owner === power);
+  const minor = ts.units.some((u) => u.type === "minor_ic" && u.owner === power);
+  if (!major && !minor) return 0;
+  let base = major ? Math.max(1, TERRITORY_INDEX[territory].ipc) : 3;
+  if (hasTech(state, power, "increased_factory")) base += 2;
+  const damage = ts.factoryDamage ?? 0;
+  return Math.max(0, base - damage);
+}
+
+/** Units this factory may still place this turn. */
+export function remainingCapacity(state: GameState, power: PowerId, territory: string): number {
+  return factoryCapacity(state, power, territory) - (state.placement[territory] ?? 0);
+}
+
 export function placeUnit(
   state: GameState,
   power: PowerId,
@@ -151,10 +178,39 @@ export function placeUnit(
   if (!placementOptions(state, power, type).includes(territory)) {
     return { ok: false, reason: "Cannot place that unit there." };
   }
+
+  // Combat units & aircraft are limited by the factory's production capacity.
+  // (New industrial complexes themselves are exempt — one per territory.)
+  if (UNITS[type].domain !== "structure") {
+    // For naval units the limiting factory is the coastal one feeding this sea zone.
+    const factoryTerr = isSea(territory)
+      ? neighbours(territory).find((n) => !isSea(n) && remainingCapacity(state, power, n) > 0)
+      : territory;
+    if (!factoryTerr || remainingCapacity(state, power, factoryTerr) <= 0) {
+      return { ok: false, reason: "That factory has no production capacity left this turn." };
+    }
+    state.placement[factoryTerr] = (state.placement[factoryTerr] ?? 0) + 1;
+  }
+
   pending.count -= 1;
   state.purchases = state.purchases.filter((p) => p.count > 0);
   addUnits(state.territories[territory], type, 1, power);
   log(state, `${POWERS[power].display} mobilizes ${UNITS[type].display} in ${TERRITORY_INDEX[territory].display}.`);
+  return { ok: true };
+}
+
+/** Repair strategic-bombing damage in the purchase phase (1 IPC per point). */
+export function repairFactory(state: GameState, power: PowerId, territory: string, amount: number): PlaceResult {
+  if (state.phase !== "purchase") return { ok: false, reason: "Repairs happen in the purchase phase." };
+  const ts = state.territories[territory];
+  if (ts.controller !== power) return { ok: false, reason: "You don't control that factory." };
+  const damage = ts.factoryDamage ?? 0;
+  const fix = Math.max(0, Math.min(amount, damage));
+  if (fix <= 0) return { ok: false, reason: "Nothing to repair there." };
+  if (state.treasury[power] < fix) return { ok: false, reason: "Not enough IPC to repair." };
+  state.treasury[power] -= fix;
+  ts.factoryDamage = damage - fix;
+  log(state, `${POWERS[power].display} repairs ${fix} factory damage in ${TERRITORY_INDEX[territory].display}.`);
   return { ok: true };
 }
 

@@ -85,11 +85,23 @@ action, actor)` — is the only way the game state ever changes.
   capital ships (damage persists between rounds, heals after the battle),
   conquest & capital looting. Play it **round-by-round** (fight on / retreat /
   one-click auto-resolve).
+- **Naval transport & amphibious assault:** load land units across a sea zone
+  onto enemy coasts, with **shore bombardment** from battleships/cruisers in the
+  staging zone (assaults can't retreat). Transport capacity tracked per turn.
+- **Strategic bombing:** send bombers at enemy industrial complexes; defending
+  AAA fires, survivors roll for factory **damage** that throttles production
+  until **repaired** in the purchase phase. Heavy Bombers tech rolls two dice.
+- **Research & Development:** spend IPC on research dice; 6s unlock techs (Jet
+  Fighters, Super Subs, Heavy Bombers, War Bonds, Increased Factory Production…)
+  with real combat/economy effects.
+- **Interactive casualties:** the attacker chooses which units absorb each
+  round's hits (or auto cheapest-first).
+- **Production limits:** factories build up to their capacity (major = territory
+  value, minor = 3, ± tech), reduced by bombing damage.
 - **House rules:** Low Luck dice, National Objective income, victory by capitals
   *or* by N victory cities — all chosen on the main menu.
 - **Lobby:** one player may control several powers, so 2–7 friends fill all nine
   seats; unclaimed powers stay open and co-operatively controllable.
-- **Mobilization:** placement gated by industrial complexes and domain.
 
 ### Unit & power data
 
@@ -99,20 +111,19 @@ turn order, and starting IPC are in `src/engine/data/powers.ts`.
 
 ## Roadmap (toward full-rulebook fidelity)
 
-The architecture already holds these; they are data/feature additions, not
-rewrites:
+The major systems are in. What remains is breadth and edge rules:
 
-1. **Full 150-territory map** — `territories.ts` uses the exact production
-   schema; remaining territories + sea zones are data entry.
-2. **Interactive casualty selection** (currently auto "lose cheapest first";
-   round-by-round fighting + retreat already implemented).
-3. **Transports & amphibious assaults** with shore bombardment.
-4. **Strategic bombing raids** and industrial-complex damage/repair.
-5. **Research & development** tech tree (the toggle is wired; rolls are next).
-6. **Scrambling, kamikaze, canals (Suez/Panama), neutral territories.**
+1. **Full 150-territory map** — the board is now 59 territories on the exact
+   production schema; the rest is data entry in `territories.ts`.
+2. **Scrambling** fighters from air/naval bases to defend adjacent sea zones.
+3. **Canals** (Suez/Panama) gating sea movement by control of the adjacent land.
+4. **Strict/pro-faction neutrals** and collapse-into-your-side mechanics.
+5. **Kamikaze** strikes and **convoy disruption** raids.
+6. **Air-base / naval-base** range extensions and operational repair.
 
-National Objectives are implemented (a representative set; extend the table in
-`rules/income.ts`).
+Implemented: turn structure, IPC economy, National Objectives, movement,
+combat (incl. amphibious, bombardment, SBR), interactive casualties, transports,
+research & tech, production limits, and victory conditions.
 
 ## Testing
 

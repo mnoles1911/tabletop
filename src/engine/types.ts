@@ -153,10 +153,16 @@ export interface PendingBattle {
   resolved: boolean;
   /** Set when this battle is an amphibious assault (carries shore bombard). */
   amphibious?: boolean;
-  /** True once opening fire (AA / sub surprise) has been applied. */
+  /** Sea zone whose warships provide shore bombardment for an amphibious assault. */
+  bombardFrom?: string;
+  /** A strategic bombing raid rather than a ground/sea battle. */
+  sbr?: boolean;
+  /** True once opening fire (AA / sub surprise / bombardment) has been applied. */
   started?: boolean;
   /** Regular combat rounds fought so far (for round-by-round resolution). */
   roundsFought?: number;
+  /** Attacker hits awaiting manual casualty assignment (interactive play). */
+  pendingAttackerHits?: number;
   /** The most recent round's dice, surfaced to the UI. */
   lastRound?: {
     attackerRolls: number[];
@@ -213,8 +219,40 @@ export interface GameState {
   log: LogEntry[];
   /** Powers eliminated (capital + no income). Skipped in turn order. */
   eliminated: PowerId[];
+  /** Transport capacity already used this turn, keyed by sea zone. */
+  transportUse: Record<string, number>;
+  /** Units already mobilized this turn per factory territory (capacity limit). */
+  placement: Record<string, number>;
+  /** Technologies developed per power (research option). */
+  tech: Record<string, TechId[]>;
   winner?: Alliance;
 }
+
+export type TechId =
+  | "jet_fighters" // fighters defend on 5
+  | "heavy_bombers" // strategic bombers roll 2 dice, keep best
+  | "super_subs" // submarines attack on 3
+  | "improved_shipyards" // (flavour) cheaper repairs — tracked, light effect
+  | "war_bonds" // +1d6 IPC each turn
+  | "increased_factory"; // +2 production capacity at each factory
+
+export const ALL_TECHS: TechId[] = [
+  "jet_fighters",
+  "heavy_bombers",
+  "super_subs",
+  "improved_shipyards",
+  "war_bonds",
+  "increased_factory",
+];
+
+export const TECH_NAMES: Record<TechId, string> = {
+  jet_fighters: "Jet Fighters",
+  heavy_bombers: "Heavy Bombers",
+  super_subs: "Super Submarines",
+  improved_shipyards: "Improved Shipyards",
+  war_bonds: "War Bonds",
+  increased_factory: "Increased Factory Production",
+};
 
 export interface LogEntry {
   round: number;

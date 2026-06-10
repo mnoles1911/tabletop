@@ -6,14 +6,25 @@ export { TERRITORIES, TERRITORY_INDEX, isSea, isLand } from "./data/territories.
 export { createInitialState, neighbours, unitsOf } from "./rules/setup.js";
 export { applyAction } from "./rules/actions.js";
 export type { Action, ActionResult } from "./rules/actions.js";
-export { resolveBattle, stepBattle, retreatBattle } from "./rules/combat.js";
+export { resolveBattle, stepBattle, retreatBattle, assignCasualties, autoCasualties } from "./rules/combat.js";
 export type { CombatResult } from "./rules/combat.js";
 export { checkMove } from "./rules/movement.js";
 export type { MoveRequest, MoveCheck } from "./rules/movement.js";
+export { checkTransport } from "./rules/transport.js";
+export type { TransportRequest, TransportCheck } from "./rules/transport.js";
 export {
   territoryIncome,
   collectibleIncome,
   controlsOwnCapital,
   nationalObjectiveBonus,
 } from "./rules/income.js";
-export { advancePhase, placementOptions, checkVictory } from "./rules/phases.js";
+export {
+  advancePhase,
+  placementOptions,
+  checkVictory,
+  factoryCapacity,
+  remainingCapacity,
+  repairFactory,
+} from "./rules/phases.js";
+export { hasTech, techName, RESEARCH_DIE_COST } from "./rules/research.js";
+export { maxFactoryDamage } from "./rules/sbr.js";

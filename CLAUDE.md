@@ -19,9 +19,12 @@ Online play-by-cloud implementation of *Axis & Allies Global 1940 2nd Edition*.
 | Map: territories, adjacency, IPC, board coords | `src/engine/data/territories.ts` |
 | Starting unit placement | `src/engine/rules/setup.ts` |
 | Movement / pathfinding rules | `src/engine/rules/movement.ts` |
-| Combat resolution | `src/engine/rules/combat.ts` |
-| Income / capital rules | `src/engine/rules/income.ts` |
-| Phase sequence, mobilize, victory | `src/engine/rules/phases.ts` |
+| Naval transport & amphibious assault | `src/engine/rules/transport.ts` |
+| Combat resolution (incl. bombardment, casualties) | `src/engine/rules/combat.ts` |
+| Strategic bombing raids | `src/engine/rules/sbr.ts` |
+| Research & technology | `src/engine/rules/research.ts` |
+| Income / capital / National Objectives | `src/engine/rules/income.ts` |
+| Phase sequence, mobilize, capacity, repair, victory | `src/engine/rules/phases.ts` |
 | The single action dispatcher | `src/engine/rules/actions.ts` |
 | Server (rooms, persistence, REST) | `src/server/` |
 | Board UI | `src/client/components/Board.tsx` |

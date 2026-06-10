@@ -1,9 +1,13 @@
 import type { GameState, PowerId, UnitTypeId } from "../types.js";
-import { UNITS, PURCHASABLE } from "../data/units.js";
-import { POWERS } from "../data/powers.js";
-import { executeMove } from "./movement.js";
-import { resolveBattle, stepBattle, retreatBattle } from "./combat.js";
-import { advancePhase, placeUnit, log } from "./phases.js";
+import { UNITS, PURCHASABLE, hasFlag } from "../data/units.js";
+import { POWERS, areEnemies } from "../data/powers.js";
+import { TERRITORY_INDEX } from "../data/territories.js";
+import { executeMove, checkMove } from "./movement.js";
+import { executeTransport } from "./transport.js";
+import { resolveBattle, stepBattle, retreatBattle, assignCasualties, autoCasualties } from "./combat.js";
+import { advancePhase, placeUnit, repairFactory, log } from "./phases.js";
+import { buyResearch, techName } from "./research.js";
+import { addUnits, removeUnits } from "./setup.js";
 
 // ============================================================================
 // Action layer. Every change to the game goes through `applyAction`, which is
@@ -16,10 +20,16 @@ export type Action =
   | { kind: "buy"; units: { type: UnitTypeId; count: number }[] }
   | { kind: "cancel_purchases" }
   | { kind: "move"; from: string; to: string; unit: UnitTypeId; count: number }
+  | { kind: "transport"; from: string; via: string; to: string; units: { type: UnitTypeId; count: number }[] }
+  | { kind: "strategic_bomb"; from: string; to: string; count: number }
   | { kind: "resolve_battle"; territory: string }
   | { kind: "battle_round"; territory: string }
   | { kind: "battle_retreat"; territory: string }
+  | { kind: "assign_casualties"; territory: string; losses: { type: UnitTypeId; count: number }[] }
+  | { kind: "auto_casualties"; territory: string }
   | { kind: "place"; unit: UnitTypeId; territory: string }
+  | { kind: "repair"; territory: string; amount: number }
+  | { kind: "research"; dice: number }
   | { kind: "advance_phase" };
 
 export interface ActionResult {
@@ -80,6 +90,75 @@ export function applyAction(state: GameState, action: Action, actor: PowerId): A
       if (!res.ok) return { ok: false, error: res.reason };
       const verb = res.initiatesCombat ? "advances to attack" : "moves to";
       log(state, `${POWERS[actor].display} ${verb} ${action.to} (${action.count}× ${UNITS[action.unit].display}).`);
+      return { ok: true };
+    }
+
+    case "transport": {
+      const res = executeTransport(state, actor, { from: action.from, via: action.via, to: action.to, units: action.units });
+      if (!res.ok) return { ok: false, error: res.reason };
+      const total = action.units.reduce((n, u) => n + u.count, 0);
+      const verb = res.amphibious ? "launches an amphibious assault on" : "ferries units to";
+      log(state, `${POWERS[actor].display} ${verb} ${TERRITORY_INDEX[action.to].display} (${total} unit(s)).`);
+      return { ok: true };
+    }
+
+    case "strategic_bomb": {
+      if (state.phase !== "combat_move") return { ok: false, error: "Launch raids during combat movement." };
+      const target = state.territories[action.to];
+      if (!target) return { ok: false, error: "Unknown target." };
+      if (!target.controller || !areEnemies(target.controller, actor)) {
+        return { ok: false, error: "You can only bomb enemy territory." };
+      }
+      if (!target.units.some((u) => hasFlag(u.type, "factory"))) {
+        return { ok: false, error: "No industrial complex to bomb there." };
+      }
+      const src = state.territories[action.from];
+      const have = src?.units.find((u) => u.type === "strategic_bomber" && u.owner === actor)?.count ?? 0;
+      if (have < action.count || action.count <= 0) return { ok: false, error: "Not enough bombers there." };
+      // Validate the bombers can reach the target (air range / overflight).
+      const reach = checkMove(state, actor, { from: action.from, to: action.to, type: "strategic_bomber", count: action.count });
+      if (!reach.ok) return { ok: false, error: reach.reason };
+
+      removeUnits(src, "strategic_bomber", action.count, actor);
+      addUnits(target, "strategic_bomber", action.count, actor);
+      let battle = state.combat.battles.find((b) => b.territory === action.to);
+      if (!battle) {
+        battle = { territory: action.to, attacker: actor, resolved: false };
+        state.combat.battles.push(battle);
+      }
+      battle.sbr = true;
+      battle.bombardFrom = action.from; // bombers fly home here afterwards
+      log(state, `${POWERS[actor].display} sends ${action.count} bomber(s) to raid ${TERRITORY_INDEX[action.to].display}.`);
+      return { ok: true };
+    }
+
+    case "assign_casualties": {
+      if (state.phase !== "combat") return { ok: false, error: "Not in combat." };
+      const r = assignCasualties(state, action.territory, action.losses);
+      for (const line of r.notes) log(state, line);
+      return r.ok ? { ok: true } : { ok: false, error: r.notes[0] };
+    }
+
+    case "auto_casualties": {
+      if (state.phase !== "combat") return { ok: false, error: "Not in combat." };
+      const r = autoCasualties(state, action.territory);
+      for (const line of r.notes) log(state, line);
+      return r.ok ? { ok: true } : { ok: false, error: r.notes[0] };
+    }
+
+    case "repair": {
+      const res = repairFactory(state, actor, action.territory, action.amount);
+      return res.ok ? { ok: true } : { ok: false, error: res.reason };
+    }
+
+    case "research": {
+      if (state.phase !== "purchase") return { ok: false, error: "Research during the purchase phase." };
+      const r = buyResearch(state, actor, action.dice);
+      if ("error" in r) return { ok: false, error: r.error };
+      const got = r.breakthroughs.length
+        ? `breakthroughs: ${r.breakthroughs.map(techName).join(", ")}!`
+        : "no breakthroughs.";
+      log(state, `${POWERS[actor].display} rolls research (${r.rolls.join(",")}) — ${got}`);
       return { ok: true };
     }
 

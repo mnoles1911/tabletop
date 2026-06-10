@@ -91,9 +91,22 @@ export const TERRITORIES: TerritoryDef[] = [
   T("new_guinea", "New Guinea", "island", 1, 88, 72, ["east_indies", "caroline_islands", "sz_coral", "queensland"]),
 
   // --- Australia (ANZAC) ------------------------------------------------
-  T("sz_coral", "SZ Coral Sea", "sea", 0, 92, 75, ["sz_c_pacific", "east_indies", "new_guinea", "queensland", "new_south_wales"]),
+  T("sz_coral", "SZ Coral Sea", "sea", 0, 92, 75, ["sz_c_pacific", "east_indies", "new_guinea", "queensland", "new_south_wales", "new_zealand"]),
   T("queensland", "Queensland", "land", 2, 86, 79, ["new_guinea", "new_south_wales", "sz_coral"], "Australia"),
   T("new_south_wales", "New South Wales", "capital", 4, 89, 86, ["queensland", "sz_coral"], "Australia", true),
+  T("new_zealand", "New Zealand", "island", 2, 97, 90, ["sz_coral"], "Australia"),
+
+  // --- Map expansion: chokepoints, depth, and outer theatres ------------
+  T("iceland", "Iceland", "island", 1, 30, 27, ["sz_mid_atlantic", "sz_north"]),
+  T("gibraltar", "Gibraltar", "land", 1, 37, 57, ["spain", "sz_e_atlantic", "sz_med"], "UnitedKingdom"),
+  T("west_africa", "West Africa", "land", 2, 37, 71, ["algeria", "sz_e_atlantic", "south_africa", "sz_s_atlantic"], "France"),
+  T("south_africa", "South Africa", "land", 3, 42, 83, ["west_africa", "sz_s_atlantic", "sz_indian"], "UnitedKingdom"),
+  T("sz_s_atlantic", "SZ South Atlantic", "sea", 0, 31, 80, ["sz_e_atlantic", "west_africa", "south_africa", "brazil"]),
+  T("brazil", "Brazil", "land", 2, 26, 74, ["sz_s_atlantic", "sz_e_atlantic"]),
+  T("west_canada", "Western Canada", "land", 2, 12, 36, ["western_usa", "eastern_canada"], "UnitedKingdom"),
+  T("kazakhstan", "Kazakhstan", "land", 2, 66, 43, ["caucasus", "russia", "persia", "siberia"], "SovietUnion"),
+  T("siberia", "Siberia", "land", 2, 74, 36, ["novgorod", "kazakhstan", "manchuria"], "SovietUnion"),
+  T("hawaii", "Hawaiian Islands", "island", 1, 97, 63, ["sz_c_pacific", "sz_e_pacific"], "UnitedStates", true),
 ];
 
 export const TERRITORY_INDEX: Record<string, TerritoryDef> = Object.fromEntries(

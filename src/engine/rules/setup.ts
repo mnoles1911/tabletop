@@ -71,7 +71,17 @@ const STARTING_FORCES: Placement[] = [
   // ANZAC (Australia)
   ["new_south_wales", [["infantry", 2], ["fighter", 1], ["minor_ic", 1]]],
   ["queensland", [["infantry", 1]]],
+  ["new_zealand", [["infantry", 1]]],
   ["sz_coral", [["cruiser", 1, "Australia"], ["transport", 1, "Australia"]]],
+
+  // Map-expansion garrisons
+  ["gibraltar", [["infantry", 1]]],
+  ["south_africa", [["infantry", 1]]],
+  ["west_canada", [["infantry", 1]]],
+  ["west_africa", [["infantry", 1]]],
+  ["hawaii", [["infantry", 1], ["fighter", 1]]],
+  ["siberia", [["infantry", 2]]],
+  ["kazakhstan", [["infantry", 1]]],
 ];
 
 /** Symmetrise the adjacency graph so every link is bidirectional. */
@@ -130,6 +140,9 @@ export function createInitialState(
     territories,
     purchases: [],
     combat: { battles: [] },
+    transportUse: {},
+    placement: {},
+    tech: {},
     rng: { seed, counter: 0 },
     log: [
       { round: 1, power: TURN_ORDER[0], phase: "purchase", text: "Game begins — Germany's purchase phase." },

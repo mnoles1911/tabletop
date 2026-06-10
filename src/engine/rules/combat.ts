@@ -1,23 +1,23 @@
-import type { GameState, PowerId, TerritoryState, UnitStack, UnitTypeId } from "../types.js";
+import type { GameState, PendingBattle, PowerId, TerritoryState, UnitStack, UnitTypeId } from "../types.js";
 import { UNITS, hasFlag } from "../data/units.js";
 import { areAllied, areEnemies, POWERS } from "../data/powers.js";
 import { isSea } from "../data/territories.js";
 import { rollDie, resolveSalvo } from "./rng.js";
 import { neighbours } from "./setup.js";
+import { hasTech } from "./research.js";
+import { resolveSBR } from "./sbr.js";
 
 // ============================================================================
-// General combat — faithful to Global 1940 and supporting BOTH a one-click
-// auto-resolution and interactive round-by-round play (fight on / retreat):
-//   1. Opening fire     — defending AAA vs attacking air; submarine surprise
-//                         strike (negated by an enemy destroyer)
-//   2. Regular rounds    — simultaneous attacker/defender fire, with
-//                         artillery->infantry support, tactical-bomber pairing,
-//                         and two-hit capital ships whose damage persists
-//                         between rounds and heals when the battle ends
-//   3. Conclusion        — conquest of land, capital looting
-//
-// Dice honour the Low Luck house rule when enabled. Casualties use the standard
-// "lose your cheapest units first" ordering so results are deterministic.
+// General combat — faithful to Global 1940, supporting one-click auto-resolve
+// and interactive round-by-round play (fight / retreat / pick casualties):
+//   1. Opening fire  — shore bombardment (amphibious), defending AAA vs air,
+//                      submarine surprise strike (negated by an enemy destroyer)
+//   2. Regular rounds — simultaneous fire with artillery->infantry support,
+//                      tactical-bomber pairing, tech effects (Jet Fighters,
+//                      Super Subs), and two-hit capital ships whose damage
+//                      persists between rounds and heals after the battle
+//   3. Conclusion     — conquest of land, capital looting
+// Strategic-bombing battles are resolved separately (see sbr.ts).
 // ============================================================================
 
 const def = (t: UnitTypeId) => UNITS[t];
@@ -67,7 +67,6 @@ function readSides(state: GameState, territory: string, attacker: PowerId) {
   return { ts, attackers, defenders };
 }
 
-/** Write both sides back into the territory, preserving two-hit damage. */
 function writeSides(ts: TerritoryState, attackers: CombatUnit[], defenders: CombatUnit[]): void {
   const merged: Record<string, UnitStack> = {};
   for (const u of [...attackers, ...defenders]) {
@@ -79,12 +78,13 @@ function writeSides(ts: TerritoryState, attackers: CombatUnit[], defenders: Comb
   ts.units = Object.values(merged);
 }
 
-// --- dice ------------------------------------------------------------------
+// --- dice (tech-aware) -----------------------------------------------------
 
-function attackDice(units: CombatUnit[]): number[] {
+function attackDice(state: GameState, units: CombatUnit[], attacker: PowerId): number[] {
   const targets: number[] = [];
   let supports = units.filter((u) => u.type === "artillery").length;
   const hasFighterOrTank = units.some((u) => u.type === "fighter" || u.type === "tank");
+  const superSubs = hasTech(state, attacker, "super_subs");
   for (const u of units) {
     let atk = def(u.type).attack;
     if ((u.type === "infantry" || u.type === "mech_infantry") && supports > 0) {
@@ -92,18 +92,23 @@ function attackDice(units: CombatUnit[]): number[] {
       supports -= 1;
     }
     if (u.type === "tactical_bomber" && hasFighterOrTank) atk = 4;
+    if (u.type === "submarine" && superSubs) atk = 3;
     if (atk > 0) targets.push(atk);
   }
   return targets;
 }
 
-function defenseDice(units: CombatUnit[]): number[] {
-  return units.map((u) => def(u.type).defense).filter((d) => d > 0);
+function defenseDice(state: GameState, units: CombatUnit[]): number[] {
+  const targets: number[] = [];
+  for (const u of units) {
+    let d = def(u.type).defense;
+    if (u.type === "fighter" && hasTech(state, u.owner, "jet_fighters")) d = 5;
+    if (d > 0) targets.push(d);
+  }
+  return targets;
 }
 
 function casualtyOrder(units: CombatUnit[]): CombatUnit[] {
-  // Cheapest combat value first; among equals, take the more-damaged unit so a
-  // two-hit ship soaks before dying.
   return [...units].sort((a, b) => def(a.type).cost - def(b.type).cost || a.hp - b.hp);
 }
 
@@ -125,15 +130,28 @@ const canFight = (units: CombatUnit[], onDefense: boolean): boolean =>
 
 // --- opening fire ----------------------------------------------------------
 
-function openingFire(
-  state: GameState,
-  territory: string,
-  attacker: PowerId,
-  notes: string[],
-): void {
+function openingFire(state: GameState, battle: PendingBattle, notes: string[]): void {
+  const territory = battle.territory;
+  const attacker = battle.attacker;
   const sea = isSea(territory);
   let { ts, attackers, defenders } = readSides(state, territory, attacker);
   const lowLuck = state.options.lowLuck;
+
+  // Shore bombardment: warships in the staging sea zone fire one salvo.
+  if (battle.amphibious && battle.bombardFrom) {
+    const zone = state.territories[battle.bombardFrom];
+    const ships = zone?.units.filter((u) => u.owner === attacker && hasFlag(u.type, "bombard")) ?? [];
+    const dice: number[] = [];
+    for (const s of ships) for (let i = 0; i < s.count; i++) dice.push(def(s.type).attack);
+    if (dice.length) {
+      const { hits } = resolveSalvo(state, dice, lowLuck);
+      if (hits > 0) {
+        defenders = applyHits(defenders, hits, notes, "Defender");
+        notes.push(`Shore bombardment scores ${hits} hit(s).`);
+      }
+    }
+    battle.bombardFrom = undefined; // bombard only once
+  }
 
   // AAA: defending anti-air fire on attacking aircraft (land battles).
   if (!sea) {
@@ -164,7 +182,7 @@ function openingFire(
     const atkHasDD = attackers.some((u) => hasFlag(u.type, "negates_sub_special"));
     const atkSubs = attackers.filter((u) => u.type === "submarine");
     if (atkSubs.length > 0 && !defHasDD) {
-      const { hits } = resolveSalvo(state, atkSubs.map(() => def("submarine").attack), lowLuck);
+      const { hits } = resolveSalvo(state, attackDice(state, atkSubs, attacker), lowLuck);
       if (hits > 0) {
         defenders = applyHits(defenders, hits, notes, "Defender");
         notes.push(`Attacking submarines surprise-strike for ${hits} hit(s).`);
@@ -172,7 +190,7 @@ function openingFire(
     }
     const defSubs = defenders.filter((u) => u.type === "submarine");
     if (defSubs.length > 0 && !atkHasDD) {
-      const { hits } = resolveSalvo(state, defSubs.map(() => def("submarine").defense), lowLuck);
+      const { hits } = resolveSalvo(state, defenseDice(state, defSubs), lowLuck);
       if (hits > 0) {
         attackers = applyHits(attackers, hits, notes, "Attacker");
         notes.push(`Defending submarines surprise-strike for ${hits} hit(s).`);
@@ -185,47 +203,40 @@ function openingFire(
 
 // --- one regular round -----------------------------------------------------
 
-function regularRound(
+/** Roll a round and apply defender casualties; return attacker hits owed. */
+function fireRound(
   state: GameState,
   territory: string,
   attacker: PowerId,
-): { log: CombatRoundLog; notes: string[] } {
+): { log: CombatRoundLog; attackerHitsOwed: number; notes: string[] } {
   const notes: string[] = [];
   let { ts, attackers, defenders } = readSides(state, territory, attacker);
   const lowLuck = state.options.lowLuck;
 
-  const atk = resolveSalvo(state, attackDice(attackers), lowLuck);
-  const dfn = resolveSalvo(state, defenseDice(defenders), lowLuck);
+  const atk = resolveSalvo(state, attackDice(state, attackers, attacker), lowLuck);
+  const dfn = resolveSalvo(state, defenseDice(state, defenders), lowLuck);
 
-  // Simultaneous fire: compute both before removing casualties.
   defenders = applyHits(defenders, atk.hits, notes, "Defender");
-  attackers = applyHits(attackers, dfn.hits, notes, "Attacker");
   writeSides(ts, attackers, defenders);
 
   return {
-    log: {
-      round: 0,
-      attackerRolls: atk.rolls,
-      defenderRolls: dfn.rolls,
-      attackerHits: atk.hits,
-      defenderHits: dfn.hits,
-    },
+    log: { round: 0, attackerRolls: atk.rolls, defenderRolls: dfn.rolls, attackerHits: atk.hits, defenderHits: dfn.hits },
+    attackerHitsOwed: dfn.hits,
     notes,
   };
 }
 
+function applyAttackerHits(state: GameState, territory: string, attacker: PowerId, hits: number, notes: string[]): void {
+  const { ts, attackers, defenders } = readSides(state, territory, attacker);
+  const survivors = applyHits(attackers, hits, notes, "Attacker");
+  writeSides(ts, survivors, defenders);
+}
+
 // --- conclusion ------------------------------------------------------------
 
-/** Decide if the battle is over and, if so, settle conquest. Returns winner or null. */
-function settle(
-  state: GameState,
-  territory: string,
-  attacker: PowerId,
-  notes: string[],
-): "attacker" | "defender" | "draw" | null {
+function settle(state: GameState, territory: string, attacker: PowerId, notes: string[]): "attacker" | "defender" | "draw" | null {
   const { ts, attackers, defenders } = readSides(state, territory, attacker);
   const sea = isSea(territory);
-
   const attackerCanFight = canFight(attackers, false);
   const defenderCanFight = canFight(defenders, true);
 
@@ -234,13 +245,11 @@ function settle(
   else if (attackers.length === 0 && defenders.length > 0) winner = "defender";
   else if (attackers.length === 0 && defenders.length === 0) winner = "draw";
   else if (!attackerCanFight && !defenderCanFight) winner = "draw";
-  else if (!attackerCanFight) winner = "defender"; // attacker only has transports/AA
+  else if (!attackerCanFight) winner = "defender";
 
   if (winner === null) return null;
 
-  // Heal surviving two-hit ships (battleship damage is repaired after combat).
   healTwoHit(ts);
-
   if (winner === "attacker" && !sea && attackers.some((u) => def(u.type).domain === "land")) {
     captureTerritory(state, ts, attacker, notes);
   }
@@ -280,18 +289,30 @@ export function battleAttacker(state: GameState, territory: string): PowerId {
   return state.combat.battles.find((b) => b.territory === territory)?.attacker ?? state.activePower;
 }
 
-/** Auto-resolve a battle to its conclusion (the one-click option). */
+/** Auto-resolve a battle to its conclusion (one-click), casualties cheapest-first. */
 export function resolveBattle(state: GameState, territory: string): CombatResult {
-  const attacker = battleAttacker(state, territory);
+  const battle = state.combat.battles.find((b) => b.territory === territory);
+  const attacker = battle?.attacker ?? state.activePower;
   const text: string[] = [];
-  openingFire(state, territory, attacker, text);
+
+  if (battle?.sbr) {
+    const r = resolveSBR(state, territory, battle.bombardFrom ?? "");
+    battle.resolved = true;
+    return { territory, attacker, winner: "attacker", rounds: [], attackerSurvivors: 0, defenderSurvivors: 0, conquered: false, text: r.text };
+  }
+
+  if (battle && !battle.started) {
+    openingFire(state, battle, text);
+    battle.started = true;
+  }
 
   const rounds: CombatRoundLog[] = [];
   let winner = settle(state, territory, attacker, text);
   let n = 0;
   while (winner === null && n < 50) {
     n += 1;
-    const { log, notes } = regularRound(state, territory, attacker);
+    const { log, attackerHitsOwed, notes } = fireRound(state, territory, attacker);
+    applyAttackerHits(state, territory, attacker, attackerHitsOwed, notes);
     log.round = n;
     rounds.push(log);
     text.push(...notes);
@@ -306,6 +327,7 @@ export function resolveBattle(state: GameState, territory: string): CombatResult
         ? `Defender holds ${territory}.`
         : `Battle at ${territory} ends inconclusively.`,
   );
+  if (battle) battle.resolved = true;
   return {
     territory,
     attacker,
@@ -318,30 +340,36 @@ export function resolveBattle(state: GameState, territory: string): CombatResult
   };
 }
 
-/**
- * Fight a single round of an ongoing battle (interactive play). Applies opening
- * fire on the first step. Returns whether the battle is now concluded.
- */
-export function stepBattle(state: GameState, territory: string): { concluded: boolean; notes: string[] } {
+/** Fight a single round (interactive). May pause for attacker casualty choice. */
+export function stepBattle(state: GameState, territory: string): { concluded: boolean; awaitingCasualties: boolean; notes: string[] } {
   const battle = state.combat.battles.find((b) => b.territory === territory);
-  if (!battle) return { concluded: true, notes: ["No such battle."] };
+  if (!battle) return { concluded: true, awaitingCasualties: false, notes: ["No such battle."] };
+  if ((battle.pendingAttackerHits ?? 0) > 0) {
+    return { concluded: false, awaitingCasualties: true, notes: ["Choose your casualties first."] };
+  }
   const attacker = battle.attacker;
   const notes: string[] = [];
 
+  if (battle.sbr) {
+    const r = resolveSBR(state, territory, battle.bombardFrom ?? "");
+    battle.resolved = true;
+    battle.lastRound = { attackerRolls: [], defenderRolls: [], attackerHits: 0, defenderHits: 0, notes: r.text };
+    return { concluded: true, awaitingCasualties: false, notes: r.text };
+  }
+
   if (!battle.started) {
-    openingFire(state, territory, attacker, notes);
+    openingFire(state, battle, notes);
     battle.started = true;
     battle.roundsFought = 0;
-    // If opening fire already decided it, stop here.
     const early = settle(state, territory, attacker, notes);
     if (early !== null) {
       battle.resolved = true;
       battle.lastRound = { attackerRolls: [], defenderRolls: [], attackerHits: 0, defenderHits: 0, notes };
-      return { concluded: true, notes };
+      return { concluded: true, awaitingCasualties: false, notes };
     }
   }
 
-  const { log, notes: roundNotes } = regularRound(state, territory, attacker);
+  const { log, attackerHitsOwed, notes: roundNotes } = fireRound(state, territory, attacker);
   notes.push(...roundNotes);
   battle.roundsFought = (battle.roundsFought ?? 0) + 1;
   battle.lastRound = {
@@ -352,18 +380,76 @@ export function stepBattle(state: GameState, territory: string): { concluded: bo
     notes,
   };
 
+  // Decide if the attacker's losses need a manual choice.
+  const { attackers } = readSides(state, territory, attacker);
+  const distinctTypes = new Set(attackers.map((u) => u.type)).size;
+  if (attackerHitsOwed > 0 && distinctTypes > 1 && attackerHitsOwed < attackers.length) {
+    battle.pendingAttackerHits = attackerHitsOwed;
+    return { concluded: false, awaitingCasualties: true, notes };
+  }
+
+  applyAttackerHits(state, territory, attacker, attackerHitsOwed, notes);
   const winner = settle(state, territory, attacker, notes);
   if (winner !== null) {
     battle.resolved = true;
-    return { concluded: true, notes };
+    return { concluded: true, awaitingCasualties: false, notes };
   }
-  return { concluded: false, notes };
+  return { concluded: false, awaitingCasualties: false, notes };
+}
+
+/** Apply the attacker's chosen casualties for a paused battle. */
+export function assignCasualties(
+  state: GameState,
+  territory: string,
+  losses: { type: UnitTypeId; count: number }[],
+): { ok: boolean; concluded: boolean; notes: string[] } {
+  const battle = state.combat.battles.find((b) => b.territory === territory);
+  if (!battle || !battle.pendingAttackerHits) return { ok: false, concluded: false, notes: ["No casualties to assign."] };
+  const attacker = battle.attacker;
+  const ts = state.territories[territory];
+  const total = losses.reduce((n, l) => n + l.count, 0);
+  if (total !== battle.pendingAttackerHits) {
+    return { ok: false, concluded: false, notes: [`Assign exactly ${battle.pendingAttackerHits} casualties.`] };
+  }
+  for (const l of losses) {
+    const have = ts.units.find((u) => u.type === l.type && u.owner === attacker)?.count ?? 0;
+    if (have < l.count) return { ok: false, concluded: false, notes: ["You don't have those units to lose."] };
+  }
+  const notes: string[] = [];
+  for (const l of losses) {
+    const stack = ts.units.find((u) => u.type === l.type && u.owner === attacker);
+    if (stack) {
+      stack.count -= l.count;
+      notes.push(`Attacker loses ${l.count}× ${def(l.type).display}`);
+    }
+  }
+  ts.units = ts.units.filter((u) => u.count > 0);
+  battle.pendingAttackerHits = 0;
+  const winner = settle(state, territory, attacker, notes);
+  if (winner !== null) battle.resolved = true;
+  return { ok: true, concluded: winner !== null, notes };
+}
+
+/** Auto-assign the cheapest casualties for a paused battle. */
+export function autoCasualties(state: GameState, territory: string): { ok: boolean; concluded: boolean; notes: string[] } {
+  const battle = state.combat.battles.find((b) => b.territory === territory);
+  if (!battle || !battle.pendingAttackerHits) return { ok: false, concluded: false, notes: ["No casualties to assign."] };
+  const attacker = battle.attacker;
+  const hits = battle.pendingAttackerHits;
+  const notes: string[] = [];
+  applyAttackerHits(state, territory, attacker, hits, notes);
+  battle.pendingAttackerHits = 0;
+  const winner = settle(state, territory, attacker, notes);
+  if (winner !== null) battle.resolved = true;
+  return { ok: true, concluded: winner !== null, notes };
 }
 
 /** Attacker withdraws survivors to one friendly adjacent territory. */
 export function retreatBattle(state: GameState, territory: string): { ok: boolean; notes: string[] } {
   const battle = state.combat.battles.find((b) => b.territory === territory);
   if (!battle) return { ok: false, notes: ["No such battle."] };
+  if (battle.amphibious) return { ok: false, notes: ["Amphibious assaults cannot retreat."] };
+  if ((battle.pendingAttackerHits ?? 0) > 0) return { ok: false, notes: ["Assign casualties before retreating."] };
   const attacker = battle.attacker;
   const ts = state.territories[territory];
   const notes: string[] = [];
@@ -371,7 +457,6 @@ export function retreatBattle(state: GameState, territory: string): { ok: boolea
   const attackerStacks = ts.units.filter((u) => u.owner === attacker);
   if (attackerStacks.length === 0) return { ok: false, notes: ["Nothing to retreat."] };
 
-  // Find a friendly adjacent destination per domain.
   const friendly = (id: string): boolean => {
     const c = state.territories[id].controller;
     const noEnemies = !state.territories[id].units.some((u) => areEnemies(u.owner, attacker));
