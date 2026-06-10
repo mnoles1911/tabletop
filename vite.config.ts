@@ -7,6 +7,8 @@ import { fileURLToPath, URL } from "node:url";
 // and the UI run side by side under `npm run dev`.
 export default defineConfig({
   root: "src/client",
+  // Served at "/" locally; GitHub Pages sets VITE_BASE to "/<repo>/".
+  base: process.env.VITE_BASE || "/",
   plugins: [react()],
   resolve: {
     alias: {

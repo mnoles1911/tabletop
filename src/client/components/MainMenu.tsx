@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { GameOptions } from "@engine/index";
-import { api } from "../api.js";
+import { backend, LOCAL } from "../backend.js";
 
 // The landing screen: start a new game (choosing house rules) or join one by
 // code. Designed mobile-first — big tap targets, single-column, fits a phone.
@@ -26,7 +26,7 @@ export function MainMenu({ onEnter }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const id = await api.createGame(opts);
+      const id = await backend.createGame(opts);
       onEnter(id);
     } catch (e) {
       setError((e as Error).message);
@@ -54,8 +54,9 @@ export function MainMenu({ onEnter }: Props) {
         <span className="gold">Global 1940</span>
       </div>
       <div className="subtitle">
-        Turn-based play-by-cloud for 2–7 commanders. Each player picks their powers and plays from
-        their own phone or laptop.
+        {LOCAL
+          ? "Pass-and-play on this device — set the house rules, then take turns as each power. Your game is saved in this browser."
+          : "Turn-based play-by-cloud for 2–7 commanders. Each player picks their powers and plays from their own phone or laptop."}
       </div>
 
       <div className="card menu-card">
@@ -114,15 +115,17 @@ export function MainMenu({ onEnter }: Props) {
         {error && <div className="hint" style={{ color: "var(--danger)" }}>{error}</div>}
       </div>
 
-      <div className="card menu-card">
-        <div className="section-title">Join a game</div>
-        <div className="link-box">
-          <input placeholder="game code" value={code} onChange={(e) => setCode(e.target.value)} />
-          <button className="primary" disabled={!code.trim()} onClick={() => onEnter(code.trim())}>
-            Join
-          </button>
+      {!LOCAL && (
+        <div className="card menu-card">
+          <div className="section-title">Join a game</div>
+          <div className="link-box">
+            <input placeholder="game code" value={code} onChange={(e) => setCode(e.target.value)} />
+            <button className="primary" disabled={!code.trim()} onClick={() => onEnter(code.trim())}>
+              Join
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -6,7 +6,8 @@ import {
   type Action,
   type UnitTypeId,
 } from "@engine/index";
-import { api, type GameView } from "./api.js";
+import { type GameView } from "./api.js";
+import { backend, LOCAL } from "./backend.js";
 import { Board } from "./components/Board.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { Lobby } from "./components/Lobby.js";
@@ -18,6 +19,7 @@ const readHashGame = () => new URLSearchParams(location.hash.slice(1)).get("g");
 export function App() {
   const [gameId, setGameId] = useState<string | null>(readHashGame());
   const [token, setToken] = useState<string | null>(() => {
+    if (LOCAL) return "local";
     const g = readHashGame();
     return g ? localStorage.getItem(tokenKey(g)) : null;
   });
@@ -39,7 +41,7 @@ export function App() {
   const refresh = useCallback(async () => {
     if (!gameId) return;
     try {
-      const v = await api.fetchGame(gameId, token);
+      const v = await backend.fetchGame(gameId, token);
       setView(v);
     } catch (e) {
       setError((e as Error).message);
@@ -68,7 +70,7 @@ export function App() {
       setBusy(true);
       setError(null);
       try {
-        const r = await api.act(gameId, token, action, view.state.version);
+        const r = await backend.act(gameId, token, action, view.state.version);
         setView({ ...view, state: r.state, seats: r.seats });
         if (action.kind === "move") setSelectedUnit(null);
       } catch (e) {
@@ -133,7 +135,7 @@ export function App() {
       <MainMenu
         onEnter={(id) => {
           location.hash = `g=${id}`;
-          setToken(localStorage.getItem(tokenKey(id)));
+          setToken(LOCAL ? "local" : localStorage.getItem(tokenKey(id)));
           setGameId(id);
         }}
       />
