@@ -109,8 +109,10 @@ export function DiceTray({ event }: { event: DiceEvent | null }) {
   return (
     <div className="dice-tray" onClick={() => setShown(null)}>
       <div className="dice-tray-head">
-        🎲 {shown.territory.replace(/_/g, " ")} — <span style={{ color: "#e88" }}>attack {shown.atk.join(" ") || "—"}</span>{" · "}
-        <span style={{ color: "#9bd" }}>defense {shown.def.join(" ") || "—"}</span>
+        <span className="dice-tray-terr">{shown.territory.replace(/_/g, " ")}</span>
+        <span style={{ color: "#e8908a" }}>ATK {shown.atk.join(" ") || "—"}</span>
+        <span className="dice-tray-sep">·</span>
+        <span style={{ color: "#9bbfe0" }}>DEF {shown.def.join(" ") || "—"}</span>
       </div>
       <Canvas camera={{ position: [0, 3.4, 3.0], fov: 38 }} dpr={[1, 2]}>
         <ambientLight intensity={0.85} />

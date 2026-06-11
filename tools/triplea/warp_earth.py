@@ -4,7 +4,7 @@ warp_earth.py — Warp the equirectangular satellite texture into "board space".
 
 Why this exists
 ---------------
-The 3D globe renders `src/client/public/earth_day.jpg` (2048x1024 equirectangular
+The 3D globe renders `src/client/assets/earth_day.jpg` (2048x1024 equirectangular
 satellite image) on a sphere, with the Axis & Allies province outlines (from
 `src/engine/data/borders.ts`) wrapped on top using a *linear* equirectangular
 fit (see `generate.py`):
