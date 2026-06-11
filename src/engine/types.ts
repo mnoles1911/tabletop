@@ -126,6 +126,8 @@ export interface TerritoryDef {
   lat: number;
   /** Victory city — relevant to the global victory conditions. */
   victoryCity?: boolean;
+  /** Neutral bloc, if this is a neutral country: strict, pro-Axis or pro-Allied. */
+  neutral?: "true" | "axis" | "allies";
 }
 
 /** Mutable per-territory runtime state. */
@@ -179,6 +181,8 @@ export interface PendingBattle {
     defenderHits: number;
     notes: string[];
   };
+  /** Aircraft scrambled to defend this sea battle, to be returned afterwards. */
+  scrambled?: { from: string; type: UnitTypeId; count: number; owner: PowerId }[];
 }
 
 /** House rules & optional systems chosen at game creation. */
@@ -233,6 +237,10 @@ export interface GameState {
   placement: Record<string, number>;
   /** Technologies developed per power (research option). */
   tech: Record<string, TechId[]>;
+  /** Japan's remaining kamikaze tokens (Pacific island defence). */
+  kamikaze?: number;
+  /** Neutral blocs that have already been swung into the war. */
+  neutralsActivated?: ("true" | "axis" | "allies")[];
   winner?: Alliance;
 }
 

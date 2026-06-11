@@ -7,6 +7,9 @@ import {
   POWERS,
   UNITS,
   isSea,
+  neighbours,
+  areEnemies,
+  KAMIKAZE_ISLANDS,
   type Action,
   type PowerId,
   type UnitTypeId,
@@ -309,6 +312,14 @@ function TerrHud({ state, id }: { state: GameView["state"]; id: string }) {
   if (!def) return null;
   const ts = state.territories[id];
   const ctrl = ts?.controller;
+  // Special-rule flags for sea zones.
+  const kamiZone = isSea(id) && (state.kamikaze ?? 0) > 0 &&
+    neighbours(id).some((n) => KAMIKAZE_ISLANDS.has(n) && state.territories[n]?.controller === "Japan");
+  const warOwners = new Set((ts?.units ?? []).filter((u) => ["destroyer", "cruiser", "battleship", "aircraft_carrier", "submarine"].includes(u.type)).map((u) => u.owner));
+  const convoyZone = isSea(id) && warOwners.size > 0 && neighbours(id).some((n) => {
+    const lt = state.territories[n]; const d = TERRITORY_INDEX[n];
+    return !isSea(n) && lt?.controller && d && d.ipc > 0 && [...warOwners].some((o) => areEnemies(o, lt.controller!));
+  });
   const groups = new Map<string, number>();
   for (const u of ts?.units ?? []) {
     const key = `${u.owner}:${u.type}`;
@@ -323,6 +334,8 @@ function TerrHud({ state, id }: { state: GameView["state"]; id: string }) {
       <div className="hint">
         {isSea(id) ? "Sea zone" : ctrl ? <>Controlled by <b style={{ color: POWERS[ctrl].color }}>{POWERS[ctrl].display}</b></> : "Unoccupied / neutral"}
       </div>
+      {kamiZone && <div className="hint" style={{ color: "#e7b24a" }}>🎌 Kamikaze zone — Japan: {state.kamikaze} token(s)</div>}
+      {convoyZone && <div className="hint" style={{ color: "var(--danger)" }}>⚠️ Convoy raid — enemy warships disrupting income</div>}
       {groups.size === 0 ? (
         <div className="hint">No forces present.</div>
       ) : (

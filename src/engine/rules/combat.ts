@@ -3,7 +3,7 @@ import { UNITS, hasFlag } from "../data/units.js";
 import { areAllied, areEnemies, POWERS } from "../data/powers.js";
 import { isSea } from "../data/territories.js";
 import { rollDie, resolveSalvo } from "./rng.js";
-import { neighbours } from "./setup.js";
+import { neighbours, addUnits, removeUnits } from "./setup.js";
 import { hasTech } from "./research.js";
 import { resolveSBR } from "./sbr.js";
 import { captureTerritory } from "./control.js";
@@ -22,6 +22,14 @@ import { captureTerritory } from "./control.js";
 // ============================================================================
 
 const def = (t: UnitTypeId) => UNITS[t];
+
+const WARSHIPS = new Set<UnitTypeId>(["destroyer", "cruiser", "battleship", "aircraft_carrier"]);
+
+// Japanese Pacific islands from which kamikaze pilots strike adjacent sea zones.
+export const KAMIKAZE_ISLANDS = new Set<string>([
+  "okinawa", "iwo_jima", "formosa", "marianas", "caroline_islands",
+  "paulau_island", "marshall_islands", "guam", "wake_island",
+]);
 
 interface CombatUnit {
   type: UnitTypeId;
@@ -129,14 +137,90 @@ function applyHits(units: CombatUnit[], hits: number, notes: string[], side: str
 const canFight = (units: CombatUnit[], onDefense: boolean): boolean =>
   units.some((u) => (onDefense ? def(u.type).defense : def(u.type).attack) > 0);
 
+// --- scramble & kamikaze (sea-battle reactions) ----------------------------
+
+/** Defenders scramble up to 3 fighters/tac from each adjacent enemy air base. */
+function scrambleDefenders(state: GameState, battle: PendingBattle, notes: string[]): void {
+  const sz = battle.territory;
+  const attacker = battle.attacker;
+  battle.scrambled = battle.scrambled ?? [];
+  for (const land of neighbours(sz)) {
+    if (isSea(land)) continue;
+    const lt = state.territories[land];
+    const c = lt.controller;
+    if (!c || !areEnemies(c, attacker)) continue;
+    if (!lt.units.some((u) => u.type === "air_base" && (u.owner === c || areAllied(u.owner, c)))) continue;
+    let budget = 3;
+    for (const type of ["fighter", "tactical_bomber"] as UnitTypeId[]) {
+      if (budget <= 0) break;
+      const stack = lt.units.find((u) => u.type === type && u.owner === c);
+      const n = Math.min(stack?.count ?? 0, budget);
+      if (n <= 0) continue;
+      removeUnits(lt, type, n, c);
+      addUnits(state.territories[sz], type, n, c);
+      battle.scrambled.push({ from: land, type, count: n, owner: c });
+      budget -= n;
+      notes.push(`${POWERS[c].display} scrambles ${n}× ${def(type).display} to defend.`);
+    }
+  }
+}
+
+/** Surviving scrambled aircraft fly home to their air base after the battle. */
+function returnScrambled(state: GameState, battle: PendingBattle, notes: string[]): void {
+  if (!battle.scrambled?.length) return;
+  const sz = state.territories[battle.territory];
+  for (const s of battle.scrambled) {
+    const here = sz.units.find((u) => u.type === s.type && u.owner === s.owner)?.count ?? 0;
+    const home = state.territories[s.from];
+    const homeFriendly = !!home?.controller && !areEnemies(home.controller, s.owner);
+    const n = Math.min(here, s.count);
+    if (n > 0 && homeFriendly) {
+      removeUnits(sz, s.type, n, s.owner);
+      addUnits(home, s.type, n, s.owner);
+      notes.push(`${POWERS[s.owner].display} lands ${n}× ${def(s.type).display} back at base.`);
+    }
+  }
+  battle.scrambled = [];
+}
+
+/** Japanese kamikaze strike on an attacking fleet near a held Pacific island. */
+function kamikazeHits(state: GameState, territory: string, attacker: PowerId): { hits: number; note: string } | null {
+  if ((state.kamikaze ?? 0) <= 0 || !areEnemies("Japan", attacker)) return null;
+  const near = neighbours(territory).some(
+    (n) => KAMIKAZE_ISLANDS.has(n) && state.territories[n]?.controller === "Japan",
+  );
+  if (!near) return null;
+  const ts = state.territories[territory];
+  const warships = ts.units.filter((u) => u.owner === attacker && WARSHIPS.has(u.type)).reduce((s, u) => s + u.count, 0);
+  if (warships === 0) return null;
+  const tokens = Math.min(state.kamikaze ?? 0, warships);
+  const { hits, rolls } = resolveSalvo(state, new Array(tokens).fill(2), state.options.lowLuck);
+  state.kamikaze = (state.kamikaze ?? 0) - tokens;
+  return { hits, note: `Japanese kamikaze (${tokens} token${tokens > 1 ? "s" : ""}, rolls ${rolls.join(",") || "—"}) score ${hits} hit(s).` };
+}
+
 // --- opening fire ----------------------------------------------------------
 
 function openingFire(state: GameState, battle: PendingBattle, notes: string[]): void {
   const territory = battle.territory;
   const attacker = battle.attacker;
   const sea = isSea(territory);
+  if (sea) scrambleDefenders(state, battle, notes); // add defenders before reading sides
   let { ts, attackers, defenders } = readSides(state, territory, attacker);
   const lowLuck = state.options.lowLuck;
+
+  // Kamikaze: Japanese island defence fires on the attacking surface fleet.
+  if (sea) {
+    const k = kamikazeHits(state, territory, attacker);
+    if (k) {
+      if (k.hits > 0) {
+        const ships = attackers.filter((u) => WARSHIPS.has(u.type));
+        const rest = attackers.filter((u) => !WARSHIPS.has(u.type));
+        attackers = [...applyHits(ships, k.hits, notes, "Attacker (kamikaze)"), ...rest];
+      }
+      notes.push(k.note);
+    }
+  }
 
   // Shore bombardment: warships in the staging sea zone fire one salvo.
   if (battle.amphibious && battle.bombardFrom) {
@@ -251,6 +335,9 @@ function settle(state: GameState, territory: string, attacker: PowerId, notes: s
   if (winner === null) return null;
 
   healTwoHit(ts);
+  // Battle decided: any scrambled aircraft that survived now fly home.
+  const battle = state.combat.battles.find((b) => b.territory === territory);
+  if (battle) returnScrambled(state, battle, notes);
   if (winner === "attacker" && !sea && attackers.some((u) => def(u.type).domain === "land")) {
     captureTerritory(state, ts, attacker, notes);
   }
@@ -461,6 +548,7 @@ export function retreatBattle(state: GameState, territory: string): { ok: boolea
   }
   ts.units = ts.units.filter((u) => u.owner !== attacker);
   healTwoHit(ts);
+  returnScrambled(state, battle, notes);
   battle.resolved = true;
   notes.push(`${POWERS[attacker].display} retreats ${moved} unit(s) from ${territory}.`);
   return { ok: true, notes };

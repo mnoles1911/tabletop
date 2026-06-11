@@ -3,7 +3,7 @@ import { UNITS, hasFlag } from "../data/units.js";
 import { areAllied, areEnemies } from "../data/powers.js";
 import { TERRITORY_INDEX, isSea, canalGates } from "../data/territories.js";
 import { neighbours, addUnits, removeUnits } from "./setup.js";
-import { captureTerritory } from "./control.js";
+import { captureTerritory, activateNeutralBloc } from "./control.js";
 
 // ============================================================================
 // Movement system. Validates and executes a move of a homogeneous group of
@@ -150,8 +150,18 @@ export function executeMove(state: GameState, owner: PowerId, req: MoveRequest):
 
   const src = state.territories[req.from];
   const dst = state.territories[req.to];
+
+  // The first move into a neutral country swings its whole bloc into the war
+  // (its garrison joins a side); recompute who's hostile here afterwards.
+  if (TERRITORY_INDEX[req.to].neutral && !dst.controller) {
+    activateNeutralBloc(state, req.to, owner);
+  }
+
   removeUnits(src, req.type, req.count, owner);
   addUnits(dst, req.type, req.count, owner);
+
+  const destEnemies = dst.units.some((u) => areEnemies(u.owner, owner) && u.count > 0);
+  check.initiatesCombat = state.phase === "combat_move" && destEnemies;
 
   // Moving into enemy territory queues (or joins) a battle for the combat phase.
   if (check.initiatesCombat) {

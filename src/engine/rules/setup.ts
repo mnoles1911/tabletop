@@ -79,6 +79,8 @@ export function createInitialState(
     transportUse: {},
     placement: {},
     tech: {},
+    kamikaze: 6, // Japan's Pacific-island kamikaze tokens
+    neutralsActivated: [],
     rng: { seed, counter: 0 },
     log: [
       { round: 1, power: TURN_ORDER[0], phase: "purchase", text: "Game begins — Germany's purchase phase." },

@@ -122,6 +122,9 @@ for terr, body in attach_blocks:
 
 owners = dict(re.findall(r'<territoryOwner territory="([^"]+)" owner="([^"]+)"', xml))
 
+# Neutral bloc alignment per territory (strict / pro-Axis / pro-Allied).
+NEUTRAL_BLOC = {"Neutral_True": "true", "Neutral_Axis": "axis", "Neutral_Allies": "allies"}
+
 placements = re.findall(
     r'<unitPlacement unitType="([^"]+)" territory="([^"]+)" quantity="(\d+)"(?:\s+owner="([^"]+)")?',
     xml)
@@ -184,6 +187,9 @@ for name in all_terr:
         parts.append(f'originalOwner: "{owner}"')
     if name in victory:
         parts.append("victoryCity: true")
+    bloc = NEUTRAL_BLOC.get(owners.get(name, ""))
+    if bloc:
+        parts.append(f'neutral: "{bloc}"')
     parts.append(f'lon: {lon}, lat: {lat}, x: {round(px / W * 100, 2)}, y: {round(py / H * 100, 2)}')
     parts.append("adjacent: [" + ", ".join(f'"{n}"' for n in nbrs) + "]")
     terr_lines.append("  { " + ", ".join(parts) + " },")

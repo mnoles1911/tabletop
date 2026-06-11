@@ -4,14 +4,21 @@ import { OrbitControls, Line, Html, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import {
   TERRITORIES,
+  TERRITORY_INDEX,
   BORDERS,
   POWERS,
   UNITS,
   isSea,
+  neighbours,
+  areEnemies,
+  KAMIKAZE_ISLANDS,
   type GameState,
   type PowerId,
   type UnitTypeId,
 } from "@engine/index";
+
+const STRUCTURES = new Set<UnitTypeId>(["air_base", "naval_base", "major_ic", "minor_ic"]);
+const WARSHIPS = new Set<UnitTypeId>(["destroyer", "cruiser", "battleship", "aircraft_carrier", "submarine"]);
 
 // ============================================================================
 // 3D globe renderer (three.js / react-three-fiber).
@@ -306,16 +313,19 @@ function Stack({ cell, state }: { cell: Cell; state: GameState }) {
   const ownerColor = owner ? POWERS[owner].color : "#cccccc";
   const quat = standing(cell.pos);
 
-  // Show the up-to-three most numerous unit types as little models in a row.
-  const top = [...units].sort((a, b) => b.count - a.count).slice(0, 3);
+  // Structures (factories, air bases, naval bases) ALWAYS show, wherever they
+  // are; the most numerous mobile unit types fill out the rest of the cluster.
+  const structures = units.filter((u) => STRUCTURES.has(u.type));
+  const mobile = units.filter((u) => !STRUCTURES.has(u.type)).sort((a, b) => b.count - a.count).slice(0, 3);
+  const shown = [...structures, ...mobile];
   const spread = 0.02;
   const clusterScale = Math.min(1.8, 0.85 + Math.log2(total + 1) * 0.18);
 
   return (
     <group position={cell.pos} quaternion={quat}>
       <group scale={clusterScale}>
-        {top.map((u, i) => (
-          <group key={`${u.type}-${u.owner}`} position={[(i - (top.length - 1) / 2) * spread, 0, 0]}>
+        {shown.map((u, i) => (
+          <group key={`${u.type}-${u.owner}`} position={[(i - (shown.length - 1) / 2) * spread, 0, 0]}>
             <UnitModel type={u.type} color={POWERS[u.owner]?.color ?? ownerColor} />
           </group>
         ))}
@@ -414,8 +424,36 @@ function Globe() {
   );
 }
 
+/** Sea zones flagged for special rules: kamikaze defence and convoy raiding. */
+function useZones(cells: Cell[], state: GameState): { kami: Set<string>; convoy: Set<string> } {
+  return useMemo(() => {
+    const kami = new Set<string>();
+    const convoy = new Set<string>();
+    const kamiLive = (state.kamikaze ?? 0) > 0;
+    for (const c of cells) {
+      if (!c.sea) continue;
+      const ts = state.territories[c.id];
+      if (kamiLive && neighbours(c.id).some((n) => KAMIKAZE_ISLANDS.has(n) && state.territories[n]?.controller === "Japan")) {
+        kami.add(c.id);
+      }
+      const shipOwners = new Set(ts.units.filter((u) => WARSHIPS.has(u.type)).map((u) => u.owner));
+      if (shipOwners.size) {
+        for (const n of neighbours(c.id)) {
+          if (isSea(n)) continue;
+          const lt = state.territories[n];
+          const d = TERRITORY_INDEX[n];
+          if (!lt?.controller || !d || d.ipc <= 0) continue;
+          if ([...shipOwners].some((o) => areEnemies(o, lt.controller!))) { convoy.add(c.id); break; }
+        }
+      }
+    }
+    return { kami, convoy };
+  }, [cells, state]);
+}
+
 function Scene(props: Props) {
   const { cells, byId } = useCells();
+  const zones = useZones(cells, props.state);
   return (
     <>
       <ambientLight intensity={0.95} />
@@ -435,6 +473,18 @@ function Scene(props: Props) {
       {cells.filter((c) => c.victoryCity).map((c) => (
         <Html key={`l-${c.id}`} position={c.pos.clone().multiplyScalar(1.12).toArray()} center distanceFactor={2} zIndexRange={[10, 0]}>
           <div className="globe-label">★ {c.display}</div>
+        </Html>
+      ))}
+
+      {/* Special-rule sea-zone markers: kamikaze defence & convoy raiding. */}
+      {cells.filter((c) => zones.kami.has(c.id)).map((c) => (
+        <Html key={`kz-${c.id}`} position={c.pos.toArray()} center distanceFactor={2.4} zIndexRange={[8, 0]}>
+          <div className="zone-badge kami" title="Kamikaze zone — Japanese island defence">🎌</div>
+        </Html>
+      ))}
+      {cells.filter((c) => zones.convoy.has(c.id)).map((c) => (
+        <Html key={`cz-${c.id}`} position={c.pos.toArray()} center distanceFactor={2.4} zIndexRange={[8, 0]}>
+          <div className="zone-badge convoy" title="Convoy raid — enemy warships disrupting income here">⚠️</div>
         </Html>
       ))}
 

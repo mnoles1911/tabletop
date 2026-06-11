@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createInitialState } from "./setup.js";
+import { createInitialState, neighbours } from "./setup.js";
 import { resolveBattle } from "./combat.js";
 import { applyAction } from "./actions.js";
 import { movementAllowance } from "./movement.js";
+import { isSea } from "../data/territories.js";
 import { DEFAULT_OPTIONS } from "../types.js";
 
 // Deterministic combat: the same seed must always produce the same battle.
@@ -91,6 +92,46 @@ test("China may only build infantry", () => {
   assert.equal(s.phase, "purchase");
   assert.equal(applyAction(s, { kind: "buy", units: [{ type: "tank", count: 1 }] }, "China").ok, false);
   assert.equal(applyAction(s, { kind: "buy", units: [{ type: "infantry", count: 1 }] }, "China").ok, true);
+});
+
+test("violating a strict neutral swings the whole bloc to the enemy side", () => {
+  const s = createInitialState(5);
+  s.activePower = "Germany";
+  s.phase = "combat_move";
+  // Sweden is another strict neutral, currently a Neutral garrison.
+  assert.ok(s.territories["sweden"].units.some((u) => u.owner === "Neutral"));
+  // Germany invades Spain (a strict neutral) from adjacent Normandy Bordeaux.
+  s.territories["normandy_bordeaux"].units.push({ type: "infantry", owner: "Germany", count: 10 });
+  const r = applyAction(s, { kind: "move", from: "normandy_bordeaux", to: "spain", unit: "infantry", count: 10 }, "Germany");
+  assert.equal(r.ok, true);
+  // The strict bloc joins the Allies: Sweden is now US-controlled with US troops.
+  assert.equal(s.territories["sweden"].controller, "UnitedStates");
+  assert.ok(s.territories["sweden"].units.some((u) => u.owner === "UnitedStates"));
+});
+
+test("defenders scramble aircraft from an adjacent air base into a sea battle", () => {
+  const s = createInitialState(9);
+  s.activePower = "Japan";
+  s.phase = "combat";
+  // The UK home island has an air base + fighters and borders sea zone 110.
+  assert.ok(s.territories["united_kingdom"].units.some((u) => u.type === "air_base"));
+  s.territories["sz_110"].units.push({ type: "battleship", owner: "Japan", count: 1 });
+  s.territories["sz_110"].units.push({ type: "destroyer", owner: "UnitedKingdom", count: 1 });
+  s.combat.battles = [{ territory: "sz_110", attacker: "Japan", resolved: false }];
+  const res = resolveBattle(s, "sz_110");
+  assert.ok(res.text.some((t) => /scrambles/.test(t)), "UK should scramble to defend");
+});
+
+test("kamikaze tokens strike an enemy fleet next to a Japanese island", () => {
+  const s = createInitialState(2);
+  s.activePower = "UnitedStates";
+  s.phase = "combat";
+  assert.equal(s.kamikaze, 6);
+  const sz = neighbours("okinawa").find((n) => isSea(n))!;
+  s.territories[sz].units = [{ type: "cruiser", owner: "UnitedStates", count: 2 }];
+  s.combat.battles = [{ territory: sz, attacker: "UnitedStates", resolved: false }];
+  resolveBattle(s, sz);
+  assert.ok((s.kamikaze ?? 6) < 6, "kamikaze tokens should be spent defending the island");
 });
 
 test("strategic bombing damages a factory and returns bombers", () => {
