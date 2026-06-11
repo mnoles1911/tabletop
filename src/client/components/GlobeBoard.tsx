@@ -35,7 +35,9 @@ const R = 1;
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
 const Y = new THREE.Vector3(0, 1, 0);
-const EARTH_SRC = `${import.meta.env.BASE_URL}earth_day.jpg`;
+// Imported as a hashed Vite asset so deploys are never hidden by a stale
+// browser/CDN cache of the old map imagery.
+import EARTH_SRC from "../assets/earth_day.jpg";
 
 function ll2v(lat: number, lon: number, r = R): THREE.Vector3 {
   const phi = (90 - lat) * DEG;
