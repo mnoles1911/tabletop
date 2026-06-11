@@ -47,10 +47,10 @@ function require_capital(power: string): string {
     Germany: "germany",
     SovietUnion: "russia",
     Japan: "japan",
-    UnitedStates: "eastern_usa",
+    UnitedStates: "eastern_united_states",
     China: "szechwan",
     UnitedKingdom: "united_kingdom",
-    Italy: "italy",
+    Italy: "southern_italy",
     Australia: "new_south_wales",
     France: "france",
   };

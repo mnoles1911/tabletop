@@ -49,17 +49,21 @@ test("amphibious assault captures a coastal territory", () => {
   s.activePower = "UnitedKingdom";
   s.phase = "combat_move";
   s.territories["united_kingdom"].units.push({ type: "infantry", owner: "UnitedKingdom", count: 2 });
+  // A transport waiting in the English Channel (sz_110) to carry the assault.
+  s.territories["sz_110"].units.push({ type: "transport", owner: "UnitedKingdom", count: 1 });
+  // Strip the German garrison so the landing's capture is deterministic.
+  s.territories["holland_belgium"].units = [];
   const r = applyAction(
     s,
-    { kind: "transport", from: "united_kingdom", via: "sz_north", to: "norway", units: [{ type: "infantry", count: 2 }] },
+    { kind: "transport", from: "united_kingdom", via: "sz_110", to: "holland_belgium", units: [{ type: "infantry", count: 2 }] },
     "UnitedKingdom",
   );
   assert.equal(r.ok, true);
-  const battle = s.combat.battles.find((b) => b.territory === "norway");
+  const battle = s.combat.battles.find((b) => b.territory === "holland_belgium");
   assert.equal(battle?.amphibious, true);
   s.phase = "combat";
-  resolveBattle(s, "norway");
-  assert.equal(s.territories["norway"].controller, "UnitedKingdom");
+  resolveBattle(s, "holland_belgium");
+  assert.equal(s.territories["holland_belgium"].controller, "UnitedKingdom");
 });
 
 test("strategic bombing damages a factory and returns bombers", () => {
@@ -109,22 +113,21 @@ test("annexing a neutral by walking in takes control", () => {
   s.activePower = "Germany";
   s.phase = "noncombat_move";
   s.territories["france"].units.push({ type: "infantry", owner: "Germany", count: 1 });
-  // Spain is a neutral (no owner) adjacent to France.
-  const r = applyAction(s, { kind: "move", from: "france", to: "spain", unit: "infantry", count: 1 }, "Germany");
+  // Switzerland is a neutral (no owner) directly adjacent to France.
+  const r = applyAction(s, { kind: "move", from: "france", to: "switzerland", unit: "infantry", count: 1 }, "Germany");
   assert.equal(r.ok, true);
-  assert.equal(s.territories["spain"].controller, "Germany");
+  assert.equal(s.territories["switzerland"].controller, "Germany");
 });
 
 test("a naval base grants +1 movement to ships starting there", () => {
   const s = createInitialState(42);
   s.activePower = "Germany";
   s.phase = "noncombat_move";
-  // Put a German naval base + cruiser in sz_baltic; baseline cruiser move = 2.
-  s.territories["sz_baltic"].units.push({ type: "naval_base", owner: "Germany", count: 1 });
-  s.territories["sz_baltic"].units.push({ type: "cruiser", owner: "Germany", count: 1 });
-  // sz_baltic -> sz_north -> sz_mid_atlantic is 2 hops; with +1 it reaches a 3rd.
-  // Just assert the allowance is 3 now (base +1 over the cruiser's base 2).
-  assert.equal(movementAllowance(s, "Germany", "sz_baltic", "cruiser"), 3);
+  // Put a German naval base + cruiser in the Baltic (sz_113); cruiser base move = 2.
+  s.territories["sz_113"].units.push({ type: "naval_base", owner: "Germany", count: 1 });
+  s.territories["sz_113"].units.push({ type: "cruiser", owner: "Germany", count: 1 });
+  // With the naval base the cruiser's allowance is base 2 + 1 = 3.
+  assert.equal(movementAllowance(s, "Germany", "sz_113", "cruiser"), 3);
 });
 
 test("stranded aircraft are lost when non-combat movement ends", () => {
@@ -132,22 +135,24 @@ test("stranded aircraft are lost when non-combat movement ends", () => {
   s.activePower = "Germany";
   s.phase = "noncombat_move";
   // A German fighter alone in an open sea zone with no carrier is doomed.
-  s.territories["sz_e_atlantic"].units.push({ type: "fighter", owner: "Germany", count: 1 });
+  s.territories["sz_91"].units.push({ type: "fighter", owner: "Germany", count: 1 });
   applyAction(s, { kind: "advance_phase" }, "Germany"); // leaves noncombat_move
-  const left = s.territories["sz_e_atlantic"].units.find((u) => u.type === "fighter" && u.owner === "Germany");
+  const left = s.territories["sz_91"].units.find((u) => u.type === "fighter" && u.owner === "Germany");
   assert.equal(left, undefined);
 });
 
-test("Suez canal blocks ships unless the gate (Egypt) is friendly", () => {
+test("Suez canal blocks ships unless both gates (Egypt + Trans-Jordan) are friendly", () => {
   const s = createInitialState(42);
   s.activePower = "Italy";
   s.phase = "noncombat_move";
-  s.territories["sz_med"].units.push({ type: "cruiser", owner: "Italy", count: 1 });
-  // Egypt starts UK-controlled (enemy of Italy) -> passage blocked.
-  let r = applyAction(s, { kind: "move", from: "sz_med", to: "sz_indian", unit: "cruiser", count: 1 }, "Italy");
+  // sz_98 (Mediterranean side) -> sz_81 (Red Sea side) crosses the Suez Canal.
+  s.territories["sz_98"].units.push({ type: "cruiser", owner: "Italy", count: 1 });
+  // Egypt + Trans-Jordan start UK-controlled (enemy of Italy) -> passage blocked.
+  let r = applyAction(s, { kind: "move", from: "sz_98", to: "sz_81", unit: "cruiser", count: 1 }, "Italy");
   assert.equal(r.ok, false);
-  // Hand Egypt to Italy -> passage now allowed.
+  // Hand both canal gates to Italy -> passage now allowed.
   s.territories["egypt"].controller = "Italy";
-  r = applyAction(s, { kind: "move", from: "sz_med", to: "sz_indian", unit: "cruiser", count: 1 }, "Italy");
+  s.territories["trans_jordan"].controller = "Italy";
+  r = applyAction(s, { kind: "move", from: "sz_98", to: "sz_81", unit: "cruiser", count: 1 }, "Italy");
   assert.equal(r.ok, true);
 });

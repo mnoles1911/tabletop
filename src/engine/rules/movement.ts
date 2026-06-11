@@ -1,7 +1,7 @@
 import type { GameState, PowerId, UnitTypeId } from "../types.js";
 import { UNITS, hasFlag } from "../data/units.js";
 import { areAllied, areEnemies } from "../data/powers.js";
-import { TERRITORY_INDEX, isSea, canalGate } from "../data/territories.js";
+import { TERRITORY_INDEX, isSea, canalGates } from "../data/territories.js";
 import { neighbours, addUnits, removeUnits } from "./setup.js";
 import { captureTerritory } from "./control.js";
 
@@ -86,12 +86,16 @@ function shortestPath(
     for (const { node, dist } of frontier) {
       for (const n of neighbours(node)) {
         if (seen.has(n)) continue;
-        // Canals only let through ships of a power friendly with the gate's owner.
+        // Canals only let ships through while EVERY gate territory (e.g. Suez
+        // needs both Egypt and Trans-Jordan) is controlled by a friendly power.
         if (def(type).domain === "sea") {
-          const gate = canalGate(node, n);
-          if (gate) {
-            const gc = state.territories[gate].controller;
-            if (!gc || (gc !== owner && !areAllied(gc, owner))) continue;
+          const gates = canalGates(node, n);
+          if (gates) {
+            const blocked = gates.some((g) => {
+              const gc = state.territories[g]?.controller;
+              return !gc || (gc !== owner && !areAllied(gc, owner));
+            });
+            if (blocked) continue;
           }
         }
         seen.add(n);

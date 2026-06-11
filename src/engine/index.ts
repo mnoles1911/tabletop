@@ -2,7 +2,9 @@
 export * from "./types.js";
 export { UNITS, PURCHASABLE, unitDef, hasFlag } from "./data/units.js";
 export { POWERS, TURN_ORDER, powerDef, areAllied, areEnemies } from "./data/powers.js";
-export { TERRITORIES, TERRITORY_INDEX, isSea, isLand } from "./data/territories.js";
+export { TERRITORIES, TERRITORY_INDEX, isSea, isLand, CANALS, canalGate, canalGates } from "./data/territories.js";
+export type { Canal } from "./data/territories.js";
+export { BORDERS } from "./data/borders.js";
 export { createInitialState, neighbours, unitsOf } from "./rules/setup.js";
 export { applyAction } from "./rules/actions.js";
 export type { Action, ActionResult } from "./rules/actions.js";

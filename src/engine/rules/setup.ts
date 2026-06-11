@@ -8,103 +8,15 @@ import type {
 } from "../types.js";
 import { DEFAULT_OPTIONS } from "../types.js";
 import { TERRITORIES, TERRITORY_INDEX } from "../data/territories.js";
+import { STARTING_FORCES } from "../data/setup.generated.js";
 import { POWERS, TURN_ORDER } from "../data/powers.js";
 
 // ============================================================================
 // Initial game setup. Builds the opening GameState: controllers, treasuries,
-// and a representative 1940 starting force on every front. The placement below
-// gives each power a defensible capital, forward units on contested borders,
-// and starting fleets, so the game is immediately playable end-to-end.
+// and the official 1940 2nd-edition starting forces on every front. The
+// placement table itself is generated from the TripleA board data — see
+// `data/setup.generated.ts` — so it always matches the map.
 // ============================================================================
-
-type Placement = [territory: string, units: Array<[UnitTypeId, number, PowerId?]>];
-
-const STARTING_FORCES: Placement[] = [
-  // Germany
-  ["germany", [["infantry", 4], ["artillery", 2], ["tank", 3], ["fighter", 2], ["tactical_bomber", 1], ["major_ic", 1], ["aa_gun", 1]]],
-  ["poland", [["infantry", 3], ["tank", 1], ["artillery", 1]]],
-  ["norway", [["infantry", 1, "Germany"]]],
-  ["balkans", [["infantry", 2]]],
-  ["sz_baltic", [["submarine", 1, "Germany"], ["cruiser", 1, "Germany"], ["transport", 1, "Germany"]]],
-
-  // Italy
-  ["italy", [["infantry", 3], ["artillery", 1], ["fighter", 1], ["major_ic", 1]]],
-  ["northern_italy", [["infantry", 2], ["minor_ic", 1]]],
-  ["southern_italy", [["infantry", 1]]],
-  ["libya", [["infantry", 2], ["tank", 1]]],
-  ["tobruk", [["infantry", 1]]],
-  ["sz_med", [["cruiser", 1, "Italy"], ["destroyer", 1, "Italy"], ["transport", 1, "Italy"]]],
-
-  // Soviet Union
-  ["russia", [["infantry", 5], ["artillery", 2], ["tank", 2], ["fighter", 1], ["major_ic", 1], ["aa_gun", 1]]],
-  ["ukraine", [["infantry", 3], ["artillery", 1]]],
-  ["caucasus", [["infantry", 2], ["minor_ic", 1]]],
-  ["novgorod", [["infantry", 2]]],
-
-  // Japan
-  ["japan", [["infantry", 3], ["artillery", 1], ["fighter", 2], ["tactical_bomber", 1], ["major_ic", 1], ["aa_gun", 1]]],
-  ["manchuria", [["infantry", 3], ["artillery", 1], ["tank", 1]]],
-  ["korea", [["infantry", 1]]],
-  ["kwangtung", [["infantry", 2]]],
-  ["sz_w_pacific", [["aircraft_carrier", 1, "Japan"], ["fighter", 1, "Japan"], ["battleship", 1, "Japan"], ["destroyer", 2, "Japan"], ["submarine", 1, "Japan"], ["transport", 2, "Japan"]]],
-
-  // China
-  ["szechwan", [["infantry", 4]]],
-  ["yunnan", [["infantry", 2]]],
-  ["kiangsu", [["infantry", 2, "China"]]],
-
-  // United States
-  ["eastern_usa", [["infantry", 2], ["artillery", 1], ["tank", 1], ["fighter", 1], ["strategic_bomber", 1], ["major_ic", 1], ["aa_gun", 1]]],
-  ["western_usa", [["infantry", 2], ["fighter", 1], ["major_ic", 1]]],
-  ["philippines", [["infantry", 1]]],
-  ["sz_w_atlantic", [["battleship", 1, "UnitedStates"], ["destroyer", 1, "UnitedStates"], ["transport", 1, "UnitedStates"]]],
-  ["sz_e_pacific", [["aircraft_carrier", 1, "UnitedStates"], ["fighter", 1, "UnitedStates"], ["cruiser", 1, "UnitedStates"], ["destroyer", 1, "UnitedStates"]]],
-
-  // United Kingdom
-  ["united_kingdom", [["infantry", 3], ["artillery", 1], ["fighter", 2], ["strategic_bomber", 1], ["major_ic", 1], ["aa_gun", 1]]],
-  ["egypt", [["infantry", 2], ["artillery", 1], ["tank", 1]]],
-  ["india", [["infantry", 3], ["artillery", 1], ["minor_ic", 1]]],
-  ["eastern_canada", [["infantry", 1]]],
-  ["sz_north", [["battleship", 1, "UnitedKingdom"], ["cruiser", 1, "UnitedKingdom"], ["destroyer", 1, "UnitedKingdom"], ["transport", 1, "UnitedKingdom"]]],
-
-  // France
-  ["france", [["infantry", 3], ["artillery", 1], ["fighter", 1]]],
-  ["normandy_bordeaux", [["infantry", 1]]],
-  ["southern_france", [["infantry", 1]]],
-  ["algeria", [["infantry", 1]]],
-
-  // ANZAC (Australia)
-  ["new_south_wales", [["infantry", 2], ["fighter", 1], ["minor_ic", 1]]],
-  ["queensland", [["infantry", 1]]],
-  ["new_zealand", [["infantry", 1]]],
-  ["sz_coral", [["cruiser", 1, "Australia"], ["transport", 1, "Australia"]]],
-
-  // Map-expansion garrisons
-  ["gibraltar", [["infantry", 1]]],
-  ["south_africa", [["infantry", 1]]],
-  ["west_canada", [["infantry", 1]]],
-  ["west_africa", [["infantry", 1]]],
-  ["hawaii", [["infantry", 1], ["fighter", 1]]],
-  ["siberia", [["infantry", 2]]],
-  ["kazakhstan", [["infantry", 1]]],
-
-  // World-map fill garrisons
-  ["alaska", [["infantry", 1]]],
-  ["panama", [["infantry", 1]]],
-  ["malaya", [["infantry", 1]]],
-  ["anglo_sudan", [["infantry", 1]]],
-  ["rhodesia", [["infantry", 1]]],
-  ["trans_jordan", [["infantry", 1]]],
-  ["east_africa", [["infantry", 1]]],
-  ["french_indochina", [["infantry", 1]]],
-  ["formosa", [["infantry", 1]]],
-  ["okinawa", [["infantry", 1]]],
-  ["marianas", [["infantry", 1]]],
-  ["archangel", [["infantry", 1]]],
-  ["samara", [["infantry", 1]]],
-  ["soviet_far_east", [["infantry", 2]]],
-  ["midway", [["infantry", 1]]],
-];
 
 /** Symmetrise the adjacency graph so every link is bidirectional. */
 function buildAdjacency(): Record<string, Set<string>> {
