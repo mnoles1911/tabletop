@@ -2,6 +2,7 @@
   "name": "axis-allies-global-1940",
   "version": "0.1.0",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "description": "Online play-by-cloud implementation of Axis & Allies Global 1940 (2nd Edition).",
   "scripts": {
@@ -11,7 +12,7 @@
     "build": "tsc -p tsconfig.json && vite build",
     "start": "NODE_ENV=production tsx src/server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/engine/**/*.test.ts"
+    "test": "tsx --test \"src/engine/**/*.test.ts\""
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

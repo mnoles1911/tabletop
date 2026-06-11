@@ -3,14 +3,15 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { nanoid } from "nanoid";
 import type { GameOptions, GameState, PowerId } from "../engine/index.js";
-import { createInitialState, DEFAULT_OPTIONS, TURN_ORDER, POWERS } from "../engine/index.js";
+import { createInitialState, migrateState, DEFAULT_OPTIONS, TURN_ORDER, POWERS } from "../engine/index.js";
 
 // ============================================================================
 // Persistence for play-by-cloud. Each game is one SQLite row holding the
 // authoritative GameState plus its lobby: a seat per power and a player roster.
 // A single player may control several powers (so 2–7 friends can fill all nine
-// seats), and any power left unclaimed is "open" — co-operatively controllable
-// by anyone at the table. The game stays in the lobby until a player starts it.
+// seats); any power left unclaimed when the game starts is played by the AI —
+// claim none of them to spectate an all-AI game. The game stays in the lobby
+// until a player starts it.
 // ============================================================================
 
 export interface Player {
@@ -23,6 +24,8 @@ export interface Seat {
   power: PowerId;
   name: string | null;
   claimed: boolean;
+  /** Resolved controller once the game starts ("ai" for unclaimed seats). */
+  control?: "human" | "ai";
 }
 
 export interface GameRecord {
@@ -76,7 +79,10 @@ export function createGame(options: Partial<GameOptions> = {}): GameRecord {
 
 export function loadGame(id: string): GameRecord | null {
   const row = selectStmt.get(id) as { data: string } | undefined;
-  return row ? (JSON.parse(row.data) as GameRecord) : null;
+  if (!row) return null;
+  const record = JSON.parse(row.data) as GameRecord;
+  record.state = migrateState(record.state);
+  return record;
 }
 
 export function saveGame(record: GameRecord): void {
@@ -115,15 +121,18 @@ export function startGame(record: GameRecord, token: string): { ok: true } | { e
   if (!record.players[token]) return { error: "Join the game first." };
   if (record.started) return { error: "Already started." };
   record.started = true;
+  // Resolve control: claimed seats are humans, everything else plays itself.
+  for (const p of TURN_ORDER) {
+    record.state.powerControl[p] = record.claims[p] ? "human" : "ai";
+  }
   saveGame(record);
   return { ok: true };
 }
 
-/** A token may act for a power it claimed, or for any open (unclaimed) seat. */
+/** A token may act only for a power it claimed (unclaimed seats are AI). */
 export function canActFor(record: GameRecord, token: string, power: PowerId): boolean {
   if (!record.players[token]) return false;
-  const claim = record.claims[power];
-  return claim === token || claim === null;
+  return record.claims[power] === token;
 }
 
 export function powersForToken(record: GameRecord, token: string): PowerId[] {
@@ -134,6 +143,11 @@ export function powersForToken(record: GameRecord, token: string): PowerId[] {
 export function publicSeats(record: GameRecord): Seat[] {
   return TURN_ORDER.map((p) => {
     const claim = record.claims[p];
-    return { power: p, claimed: !!claim, name: claim ? record.players[claim]?.name ?? null : null };
+    return {
+      power: p,
+      claimed: !!claim,
+      name: claim ? record.players[claim]?.name ?? null : null,
+      control: record.started ? record.state.powerControl?.[p] : claim ? "human" : "ai",
+    };
   });
 }

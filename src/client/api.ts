@@ -6,6 +6,8 @@ export interface Seat {
   power: PowerId;
   name: string | null;
   claimed: boolean;
+  /** Resolved controller once the game starts ("ai" for unclaimed seats). */
+  control?: "human" | "ai";
 }
 
 export interface GameView {
@@ -25,7 +27,9 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  async createGame(options: Partial<GameOptions>): Promise<string> {
+  // `humans` is accepted for signature-compatibility with the local backend but
+  // ignored on the cloud path — seats are claimed in the lobby instead.
+  async createGame(options: Partial<GameOptions>, _humans?: PowerId[]): Promise<string> {
     const res = await fetch("/api/games", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -81,11 +85,12 @@ export const api = {
     token: string,
     action: Action,
     version: number,
+    as?: PowerId,
   ): Promise<{ state: GameState; seats: Seat[] }> {
     const res = await fetch(`/api/games/${gameId}/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, action, version }),
+      body: JSON.stringify({ token, action, version, as }),
     });
     return json<{ state: GameState; seats: Seat[] }>(res);
   },

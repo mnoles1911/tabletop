@@ -115,7 +115,11 @@ export function Lobby({ view, gameId, token, name, setName, onJoined, refresh }:
                       <span className="hint"> · {POWERS[p].startingIPC} IPC</span>
                     </span>
                     <span className="hint">
-                      {mine ? "Yours ✓ (tap to release)" : seat.claimed ? `${seat.name}` : "Open — tap to claim"}
+                      {mine
+                        ? "Yours ✓ (tap to release)"
+                        : seat.claimed
+                          ? `${seat.name}`
+                          : "Open — tap to claim · 🤖 AI"}
                     </span>
                   </button>
                 );
@@ -124,9 +128,12 @@ export function Lobby({ view, gameId, token, name, setName, onJoined, refresh }:
           ))}
 
           <button className="gold mt" style={{ width: "100%", padding: 14 }} disabled={busy} onClick={start}>
-            Start game ▸
+            {youPowers.size === 0 ? "Start & spectate ▸" : "Start game ▸"}
           </button>
-          <div className="hint mt">Unclaimed powers will be playable by anyone at the table.</div>
+          <div className="hint mt">
+            Unclaimed powers will be played by the computer. You can start with no claims
+            to watch an AI-run game.
+          </div>
         </div>
       )}
 

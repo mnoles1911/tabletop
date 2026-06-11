@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createInitialState, neighbours } from "./setup.js";
+import { setWar } from "./politics.js";
 import { resolveBattle } from "./combat.js";
-import { applyAction } from "./actions.js";
+import { applyAction, expectedActor } from "./actions.js";
 import { movementAllowance } from "./movement.js";
 import { isSea } from "../data/territories.js";
 import { DEFAULT_OPTIONS } from "../types.js";
@@ -34,15 +35,19 @@ test("buying more than the treasury is rejected", () => {
 
 test("phase advances through the full turn sequence", () => {
   const s = createInitialState(1);
-  const seq = ["combat_move", "combat", "noncombat_move", "mobilize", "collect_income"];
+  // Germany opens in politics (it can declare war). With research off and no
+  // battles queued, tech_research and combat are skipped automatically.
+  assert.equal(s.phase, "politics");
+  const seq = ["purchase", "combat_move", "noncombat_move", "mobilize", "collect_income"];
   for (const expected of seq) {
     applyAction(s, { kind: "advance_phase" }, "Germany");
     assert.equal(s.phase, expected);
   }
-  // One more advance ends Germany's turn and hands off to the Soviet Union.
+  // One more advance ends Germany's turn and hands off to the Soviet Union,
+  // which also has a declaration available (Japan), so it opens in politics.
   applyAction(s, { kind: "advance_phase" }, "Germany");
   assert.equal(s.activePower, "SovietUnion");
-  assert.equal(s.phase, "purchase");
+  assert.equal(s.phase, "politics");
 });
 
 test("amphibious assault captures a coastal territory", () => {
@@ -113,6 +118,7 @@ test("defenders scramble aircraft from an adjacent air base into a sea battle", 
   const s = createInitialState(9);
   s.activePower = "Japan";
   s.phase = "combat";
+  setWar(s, "Japan", "UnitedKingdom");
   // The UK home island has an air base + fighters and borders sea zone 110.
   assert.ok(s.territories["united_kingdom"].units.some((u) => u.type === "air_base"));
   s.territories["sz_110"].units.push({ type: "battleship", owner: "Japan", count: 1 });
@@ -126,6 +132,7 @@ test("kamikaze tokens strike an enemy fleet next to a Japanese island", () => {
   const s = createInitialState(2);
   s.activePower = "UnitedStates";
   s.phase = "combat";
+  setWar(s, "UnitedStates", "Japan");
   assert.equal(s.kamikaze, 6);
   const sz = neighbours("okinawa").find((n) => isSea(n))!;
   s.territories[sz].units = [{ type: "cruiser", owner: "UnitedStates", count: 2 }];
@@ -149,6 +156,7 @@ test("strategic bombing damages a factory and returns bombers", () => {
 
 test("research costs 5 IPC per die and is gated by phase", () => {
   const s = createInitialState(42, { ...DEFAULT_OPTIONS, research: true });
+  s.phase = "tech_research";
   const before = s.treasury["Germany"];
   assert.equal(applyAction(s, { kind: "research", dice: 2 }, "Germany").ok, true);
   assert.equal(s.treasury["Germany"], before - 10);
@@ -167,6 +175,7 @@ test("moving a land unit into undefended enemy land captures it", () => {
   const s = createInitialState(42);
   s.activePower = "Germany";
   s.phase = "combat_move";
+  setWar(s, "Germany", "SovietUnion"); // at peace, the border is closed
   // Norway is German already; use an undefended neutral instead: Spain (no owner).
   // Put a German infantry in adjacent France (German? no, France is French). Use
   // poland (German) -> baltic_states (Soviet) only if undefended. Empty a target:
@@ -225,4 +234,73 @@ test("Suez canal blocks ships unless both gates (Egypt + Trans-Jordan) are frien
   s.territories["trans_jordan"].controller = "Italy";
   r = applyAction(s, { kind: "move", from: "sz_98", to: "sz_81", unit: "cruiser", count: 1 }, "Italy");
   assert.equal(r.ok, true);
+});
+
+test("the defender chooses casualties when the choice is non-trivial", () => {
+  const s = createInitialState(11, { ...DEFAULT_OPTIONS, lowLuck: true });
+  s.activePower = "Germany";
+  s.phase = "combat";
+  setWar(s, "Germany", "SovietUnion");
+  // Low Luck makes this deterministic: 6 attacking infantry = 6 pips = exactly
+  // 1 hit on the defender; 3 defending units at defense 2 = 6 pips = exactly 1
+  // hit back on the attacker. The attacker's loss is trivial (one type); the
+  // defender has two unit types, so it must choose.
+  s.territories["baltic_states"].units = [
+    { type: "infantry", owner: "Germany", count: 6 },
+    { type: "infantry", owner: "SovietUnion", count: 2 },
+    { type: "artillery", owner: "SovietUnion", count: 1 },
+  ];
+  s.combat.battles = [{ territory: "baltic_states", attacker: "Germany", resolved: false }];
+  const r = applyAction(s, { kind: "battle_round", territory: "baltic_states" }, "Germany");
+  assert.equal(r.ok, true);
+  const battle = s.combat.battles[0];
+  assert.equal(battle.pendingDefenderHits, 1, "defender owes one casualty choice");
+  assert.equal(battle.pendingAttackerHits, 0, "attacker single-type loss auto-resolves");
+  assert.equal(expectedActor(s), "SovietUnion");
+  // The attacker may NOT pick the defender's casualties.
+  const cheat = applyAction(s, { kind: "assign_casualties", territory: "baltic_states", losses: [{ type: "artillery", count: 1 }], side: "defender" }, "Germany");
+  assert.equal(cheat.ok, false);
+  // The defender picks its artillery as the loss (out of turn).
+  const pick = applyAction(s, { kind: "assign_casualties", territory: "baltic_states", losses: [{ type: "artillery", count: 1 }], side: "defender" }, "SovietUnion");
+  assert.equal(pick.ok, true);
+  assert.equal(battle.pendingDefenderHits, 0);
+  assert.equal(s.territories["baltic_states"].units.some((u) => u.type === "artillery"), false);
+});
+
+test("a human defender is asked before aircraft scramble into a sea battle", () => {
+  const s = createInitialState(9);
+  s.activePower = "Japan";
+  s.phase = "combat";
+  setWar(s, "Japan", "UnitedKingdom");
+  s.territories["sz_110"].units.push({ type: "battleship", owner: "Japan", count: 1 });
+  s.territories["sz_110"].units.push({ type: "destroyer", owner: "UnitedKingdom", count: 1 });
+  s.combat.battles = [{ territory: "sz_110", attacker: "Japan", resolved: false }];
+  const r = applyAction(s, { kind: "battle_round", territory: "sz_110" }, "Japan");
+  assert.equal(r.ok, true);
+  const battle = s.combat.battles[0];
+  assert.equal(battle.awaitingScramble, true);
+  assert.equal(expectedActor(s), "UnitedKingdom");
+  // Only the defender decides.
+  assert.equal(applyAction(s, { kind: "decline_scramble", territory: "sz_110" }, "Japan").ok, false);
+  assert.equal(applyAction(s, { kind: "scramble", territory: "sz_110" }, "UnitedKingdom").ok, true);
+  assert.equal(battle.awaitingScramble, false);
+  assert.ok((battle.scrambled?.length ?? 0) > 0, "fighters joined the defence");
+});
+
+test("submarines may submerge out of a sea battle when no destroyer hunts them", () => {
+  const s = createInitialState(13);
+  s.activePower = "Germany";
+  s.phase = "combat";
+  setWar(s, "Germany", "UnitedKingdom");
+  s.territories["sz_91"].units = [
+    { type: "submarine", owner: "Germany", count: 2 },
+    { type: "cruiser", owner: "UnitedKingdom", count: 1 },
+  ];
+  s.combat.battles = [{ territory: "sz_91", attacker: "Germany", resolved: false }];
+  const r = applyAction(s, { kind: "battle_submerge", territory: "sz_91", side: "attacker" }, "Germany");
+  assert.equal(r.ok, true);
+  const battle = s.combat.battles[0];
+  assert.equal(battle.resolved, true, "subs leaving ended the battle");
+  const subs = s.territories["sz_91"].units.find((u) => u.type === "submarine" && u.owner === "Germany");
+  assert.equal(subs?.count, 2, "submerged subs resurface in the zone after the battle");
 });

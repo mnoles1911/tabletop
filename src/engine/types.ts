@@ -143,12 +143,23 @@ export interface TerritoryState {
 // --- Game state ----------------------------------------------------------
 
 export type Phase =
+  | "politics" // declare war / political actions (auto-skipped when none available)
+  | "tech_research" // roll for technology (only when the research option is on)
   | "purchase" // buy units & repair
   | "combat_move" // move units into hostile territory
   | "combat" // resolve battles
   | "noncombat_move" // reposition, land aircraft
   | "mobilize" // place purchased units at factories
   | "collect_income"; // bank IPCs, then pass to next power
+
+/** Diplomatic relation between two powers. Same-alliance pairs are always friendly. */
+export type Relation = "war" | "neutral";
+
+/** Symmetric pairwise relations (both directions stored for O(1) lookups). */
+export type Relationships = Partial<Record<PowerId, Partial<Record<PowerId, Relation>>>>;
+
+/** Who plays a power: a human at the controls, or the built-in AI. */
+export type ControlMode = "human" | "ai";
 
 export interface PendingPurchase {
   type: UnitTypeId;
@@ -159,6 +170,8 @@ export interface PendingPurchase {
 export interface PendingBattle {
   territory: string;
   attacker: PowerId;
+  /** Primary defending power (answers scramble & casualty prompts). */
+  defender?: PowerId;
   /** True once the battle has been fully resolved. */
   resolved: boolean;
   /** Set when this battle is an amphibious assault (carries shore bombard). */
@@ -169,10 +182,16 @@ export interface PendingBattle {
   sbr?: boolean;
   /** True once opening fire (AA / sub surprise / bombardment) has been applied. */
   started?: boolean;
+  /** Awaiting the defender's decision to scramble aircraft into this sea battle. */
+  awaitingScramble?: boolean;
   /** Regular combat rounds fought so far (for round-by-round resolution). */
   roundsFought?: number;
-  /** Attacker hits awaiting manual casualty assignment (interactive play). */
+  /** Hits the ATTACKER must absorb, awaiting manual casualty assignment. */
   pendingAttackerHits?: number;
+  /** Hits the DEFENDER must absorb, awaiting manual casualty assignment. */
+  pendingDefenderHits?: number;
+  /** Submarines that submerged out of the fight, returned to the zone at settle. */
+  submergedSubs?: { owner: PowerId; count: number }[];
   /** The most recent round's dice, surfaced to the UI. */
   lastRound?: {
     attackerRolls: number[];
@@ -211,7 +230,7 @@ export interface CombatState {
 }
 
 export interface GameState {
-  schema: 1;
+  schema: 2;
   /** Monotonic version; the server rejects stale-version actions. */
   version: number;
   /** House rules selected for this game. */
@@ -241,6 +260,10 @@ export interface GameState {
   kamikaze?: number;
   /** Neutral blocs that have already been swung into the war. */
   neutralsActivated?: ("true" | "axis" | "allies")[];
+  /** Pairwise war/neutral matrix (G40 politics). Same-alliance pairs are friendly. */
+  relationships: Relationships;
+  /** Human or AI control per power, resolved when the game starts. */
+  powerControl: Record<PowerId, ControlMode>;
   winner?: Alliance;
 }
 

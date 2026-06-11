@@ -7,15 +7,21 @@ import { collectibleIncome, controlsOwnCapital } from "./income.js";
 import { resolveBattle } from "./combat.js";
 import { rollDie } from "./rng.js";
 import { hasTech } from "./research.js";
+import { availableDeclarations } from "./politics.js";
 
 // ============================================================================
-// Turn structure & phase transitions for Global 1940:
-//   purchase -> combat_move -> combat -> noncombat_move -> mobilize ->
-//   collect_income -> (next power) purchase ...
-// Plus mobilization placement rules and the global victory check.
+// Turn structure & phase transitions, following TripleA's Global 1940 sequence
+// of play per power:
+//   politics -> tech_research -> purchase -> combat_move -> combat ->
+//   noncombat_move -> mobilize -> collect_income -> (next power) politics ...
+// Phases with nothing to do (no declarations available, research disabled, no
+// battles queued) are skipped automatically. Plus mobilization placement rules
+// and the global victory check.
 // ============================================================================
 
-const PHASE_ORDER: Phase[] = [
+export const PHASE_ORDER: Phase[] = [
+  "politics",
+  "tech_research",
   "purchase",
   "combat_move",
   "combat",
@@ -23,6 +29,22 @@ const PHASE_ORDER: Phase[] = [
   "mobilize",
   "collect_income",
 ];
+
+/** Phases that are silently skipped when they would offer the player nothing. */
+function shouldSkip(state: GameState, phase: Phase): boolean {
+  if (phase === "politics") return availableDeclarations(state, state.activePower).length === 0;
+  if (phase === "tech_research") return !state.options.research;
+  if (phase === "combat") return state.combat.battles.length === 0;
+  return false;
+}
+
+/** Enter `phase`, sliding forward past any phases with nothing to do. */
+function enterPhase(state: GameState, phase: Phase): void {
+  let idx = PHASE_ORDER.indexOf(phase);
+  while (idx < PHASE_ORDER.length - 1 && shouldSkip(state, PHASE_ORDER[idx])) idx += 1;
+  state.phase = PHASE_ORDER[idx];
+  log(state, `${POWERS[state.activePower].display} enters the ${labelFor(state.phase)} phase.`);
+}
 
 export function log(state: GameState, text: string): void {
   state.log.push({ round: state.round, power: state.activePower, phase: state.phase, text });
@@ -66,12 +88,13 @@ export function advancePhase(state: GameState): void {
     return;
   }
 
-  state.phase = PHASE_ORDER[idx + 1];
-  log(state, `${POWERS[state.activePower].display} enters the ${labelFor(state.phase)} phase.`);
+  enterPhase(state, PHASE_ORDER[idx + 1]);
 }
 
-function labelFor(phase: Phase): string {
+export function labelFor(phase: Phase): string {
   return {
+    politics: "politics",
+    tech_research: "research & development",
     purchase: "purchase",
     combat_move: "combat movement",
     combat: "combat",
@@ -95,9 +118,9 @@ function endTurn(state: GameState): void {
     const next = TURN_ORDER[curIdx];
     if (!state.eliminated.includes(next) && isStillInPlay(state, next)) {
       state.activePower = next;
-      state.phase = "purchase";
       log(state, `--- Round ${state.round}: ${POWERS[next].display}'s turn ---`);
       checkVictory(state);
+      enterPhase(state, "politics");
       return;
     }
   }

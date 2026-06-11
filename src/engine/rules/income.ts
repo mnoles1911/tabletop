@@ -1,5 +1,6 @@
 import type { GameState, PowerId } from "../types.js";
-import { POWERS, areEnemies } from "../data/powers.js";
+import { POWERS } from "../data/powers.js";
+import { areEnemies } from "./politics.js";
 import { TERRITORY_INDEX, isSea } from "../data/territories.js";
 import { neighbours } from "./setup.js";
 
@@ -59,7 +60,7 @@ export function convoyLoss(state: GameState, power: PowerId): number {
     for (const n of neighbours(ts.id)) {
       if (!isSea(n)) continue;
       enemyShips += state.territories[n].units
-        .filter((u) => areEnemies(u.owner, power) && UNIT_IS_WARSHIP(u.type))
+        .filter((u) => areEnemies(state, u.owner, power) && UNIT_IS_WARSHIP(u.type))
         .reduce((s, u) => s + u.count, 0);
     }
     loss += Math.min(value, enemyShips);

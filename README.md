@@ -73,9 +73,16 @@ action, actor)` — is the only way the game state ever changes.
 
 ### Rules implemented
 
-- **Turn structure:** purchase → combat-move → combat → non-combat-move →
-  mobilize → collect-income, cycling through all nine powers in the official
-  sequence, advancing the round on wrap.
+- **Turn structure (TripleA sequence of play):** politics → research →
+  purchase/repair → combat-move → combat → non-combat-move → mobilize →
+  collect-income, cycling through all nine powers in the official sequence and
+  advancing the round on wrap. Phases with nothing to do are skipped
+  automatically.
+- **Politics:** a pairwise war/neutral relationship matrix with the Global 1940
+  declaration rules — Germany/Italy open at war with the UK bloc, Japan with
+  China; Japan may declare on the UK/ANZAC/France bloc, the USA or the USSR;
+  the USA enters from round 4 (or the moment the Axis declares on it); borders
+  are closed to powers at peace until war is declared.
 - **Economy:** IPC treasuries, territory income, the "lose your capital → lose
   your income (and treasury)" rule.
 - **Movement:** domain-correct pathfinding (land/sea/air) with movement-point
@@ -94,8 +101,11 @@ action, actor)` — is the only way the game state ever changes.
 - **Research & Development:** spend IPC on research dice; 6s unlock techs (Jet
   Fighters, Super Subs, Heavy Bombers, War Bonds, Increased Factory Production…)
   with real combat/economy effects.
-- **Interactive casualties:** the attacker chooses which units absorb each
-  round's hits (or auto cheapest-first).
+- **Interactive casualties, both sides:** each round rolls both salvos first,
+  then attacker AND defender choose their own casualties (auto-resolved when
+  trivial). The defender answers out of turn — including the **scramble**
+  decision when a sea battle opens next to its air base, and either side may
+  **submerge submarines** when no enemy destroyer hunts them.
 - **Production limits:** factories build up to their capacity (major = territory
   value, minor = 3, ± tech), reduced by bombing damage.
 - **Air & naval bases:** grant +1 movement to air/sea units starting there;
@@ -103,8 +113,10 @@ action, actor)` — is the only way the game state ever changes.
 - **Suez canal:** ships pass only if a friendly power controls Egypt.
 - **House rules:** Low Luck dice, National Objective income, victory by capitals
   *or* by N victory cities — all chosen on the main menu.
-- **Lobby:** one player may control several powers, so 2–7 friends fill all nine
-  seats; unclaimed powers stay open and co-operatively controllable.
+- **Lobby & AI:** one player may control several powers, so 1–7 friends fill
+  the nine seats; every power left unclaimed is played by the **AI** (ported
+  from TripleA's Pro AI — see License). Claim every power for classic hot-seat,
+  claim none to spectate an all-AI war.
 
 ### Unit & power data
 
@@ -136,3 +148,15 @@ victory conditions.
 npm test           # node:test engine suite (determinism, economy, phases)
 npm run typecheck
 ```
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 or
+later** — see [LICENSE](LICENSE).
+
+The AI opponents (`src/engine/ai/pro/`) are ported from
+[TripleA](https://github.com/triplea-game/triplea)'s Pro AI
+(`games.strategy.triplea.ai.pro`), © the TripleA contributors, GPL-3.0.
+The whole project adopts GPL-3.0 because it contains that derived work.
+Map/territory geometry is likewise derived from TripleA's open-source
+`world_war_ii_global` map data.

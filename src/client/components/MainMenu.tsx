@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import type { GameOptions } from "@engine/index";
+import { POWERS, TURN_ORDER, type GameOptions, type PowerId } from "@engine/index";
 import { backend, LOCAL } from "../backend.js";
 import {
   listRecent,
@@ -30,7 +30,20 @@ export function MainMenu({ onEnter }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentGame[]>(() => listRecent());
+  // Local mode only: who controls each power. Default = classic all-human hot-seat.
+  const [humans, setHumans] = useState<Set<PowerId>>(() => new Set(TURN_ORDER));
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const toggleHuman = (p: PowerId) =>
+    setHumans((s) => {
+      const next = new Set(s);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return next;
+    });
+  const allAxis = new Set(TURN_ORDER.filter((p) => POWERS[p].alliance === "Axis"));
+  const allAllies = new Set(TURN_ORDER.filter((p) => POWERS[p].alliance === "Allies"));
+  const setPreset = (s: Iterable<PowerId>) => setHumans(new Set(s));
 
   async function loadFile(file: File) {
     setError(null);
@@ -52,7 +65,8 @@ export function MainMenu({ onEnter }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const id = await backend.createGame(opts);
+      // Local backend honours the humans[] roster; the cloud path ignores it.
+      const id = await backend.createGame(opts, LOCAL ? [...humans] : undefined);
       onEnter(id);
     } catch (e) {
       setError((e as Error).message);
@@ -133,6 +147,37 @@ export function MainMenu({ onEnter }: Props) {
               onChange={(e) => setOpts({ ...opts, victory: { ...opts.victory, cities: Number(e.target.value) } })}
             />
           </div>
+        )}
+
+        {LOCAL && (
+          <>
+            <div className="section-title mt">Who&apos;s playing?</div>
+            <div className="seg presets">
+              <button onClick={() => setPreset(TURN_ORDER)}>All human</button>
+              <button onClick={() => setPreset(allAllies)}>Play Allies</button>
+              <button onClick={() => setPreset(allAxis)}>Play Axis</button>
+              <button onClick={() => setPreset([])}>Watch AI</button>
+            </div>
+            <div className="players-grid mt">
+              {TURN_ORDER.map((p) => {
+                const human = humans.has(p);
+                return (
+                  <button key={p} className={`player-toggle ${human ? "human" : "ai"}`} onClick={() => toggleHuman(p)}>
+                    <span>
+                      <span className="swatch" style={{ background: POWERS[p].color }} />
+                      {POWERS[p].display}
+                    </span>
+                    <span className="hint">{human ? "🧑 Human" : "🤖 AI"}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="hint mt">
+              {humans.size === 0
+                ? "Spectate an AI-vs-AI game."
+                : `You'll play ${[...humans].map((p) => POWERS[p].display).join(", ")} on this device; the rest are AI.`}
+            </div>
+          </>
         )}
 
         <button className="gold mt" style={{ width: "100%", padding: "14px" }} disabled={busy} onClick={create}>

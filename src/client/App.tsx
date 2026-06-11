@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   checkMove,
   placementOptions,
+  expectedActor,
   TERRITORIES,
   TERRITORY_INDEX,
   POWERS,
@@ -26,6 +27,7 @@ import {
 } from "./saves.js";
 import { GlobeBoard as Board } from "./components/GlobeBoard.js";
 import { Sidebar } from "./components/Sidebar.js";
+import { TurnBanner } from "./components/TurnBanner.js";
 import { Lobby } from "./components/Lobby.js";
 import { MainMenu } from "./components/MainMenu.js";
 
@@ -127,30 +129,43 @@ export function App() {
     });
   }, []);
 
+  // Poll faster while an AI power is on the clock so its moves feel live; ease
+  // off to a calm cadence when we're waiting on a human.
+  const aiThinking = useMemo(() => {
+    if (!view || !view.started || view.state.winner) return false;
+    return view.state.powerControl?.[expectedActor(view.state)] === "ai";
+  }, [view]);
+
   useEffect(() => {
     if (!gameId) return;
     refresh();
-    const id = setInterval(refresh, 2500);
+    const id = setInterval(refresh, aiThinking ? 1200 : 2500);
     return () => clearInterval(id);
-  }, [gameId, refresh]);
+  }, [gameId, refresh, aiThinking]);
 
-  // Whether the local player may act for the currently active power.
-  const canAct = useMemo(() => {
-    if (!view || !view.started || !token || view.state.winner) return false;
-    const active = view.state.activePower;
-    if (view.youPowers.includes(active)) return true;
-    const seat = view.seats.find((s) => s.power === active);
-    return !!seat && !seat.claimed; // open seats are co-operatively controllable
+  // Whether the local player may act, and the power they'd be acting as.
+  const actingAs = useMemo<PowerId | null>(() => {
+    if (!view || !view.started || !token || view.state.winner) return null;
+    const exp = expectedActor(view.state);
+    if (view.youPowers.includes(exp)) return exp;
+    // Open seats (cloud co-op) are shared: anyone may drive an unclaimed power.
+    const seat = view.seats.find((s) => s.power === exp);
+    if (seat && !seat.claimed && seat.control !== "ai") return exp;
+    return null;
   }, [view, token]);
+  const canAct = actingAs !== null;
 
   const act = useCallback(
-    async (action: Action) => {
+    async (action: Action, as?: PowerId) => {
       if (!gameId || !token || !view) return;
       setBusy(true);
       setError(null);
       try {
-        const mover = view.state.activePower;
-        const r = await backend.act(gameId, token, action, view.state.version);
+        const mover = as ?? actingAs ?? view.state.activePower;
+        // Only pass `as` to the server when acting for someone other than the
+        // active power (e.g. an out-of-turn defender).
+        const asArg = mover !== view.state.activePower ? mover : undefined;
+        const r = await backend.act(gameId, token, action, view.state.version, asArg);
         setView({ ...view, state: r.state, seats: r.seats });
         if (action.kind === "move") {
           setSelectedUnit(null);
@@ -170,7 +185,7 @@ export function App() {
         setBusy(false);
       }
     },
-    [gameId, token, view, refresh],
+    [gameId, token, view, refresh, actingAs],
   );
 
   const targets = useMemo(() => {
@@ -270,7 +285,11 @@ export function App() {
   return (
     <div className={`app ${sheetOpen ? "sheet-open" : ""}`}>
       <div className="board-wrap">
+        <TurnBanner state={view.state} />
         {view.state.winner && <div className="banner">🏆 {view.state.winner} Victory!</div>}
+        {view.youPowers.length === 0 && !view.state.winner && (
+          <div className="spectator-badge">👁 Spectating — the AI is playing</div>
+        )}
         <Board state={view.state} selected={selectedTerr} targets={targets} range={rangeTargets} battles={battles} onPick={onPick} onHoverTerr={setHoverTerr} lastMove={lastMove} />
         {hoverTerr && <TerrHud state={view.state} id={hoverTerr} />}
         <DiceTray event={dice} />
@@ -291,6 +310,7 @@ export function App() {
       <Sidebar
         view={view}
         canAct={canAct}
+        actingAs={actingAs}
         selectedTerr={selectedTerr}
         selectedUnit={selectedUnit}
         selectedCount={selectedCount}
@@ -318,7 +338,7 @@ function TerrHud({ state, id }: { state: GameView["state"]; id: string }) {
   const warOwners = new Set((ts?.units ?? []).filter((u) => ["destroyer", "cruiser", "battleship", "aircraft_carrier", "submarine"].includes(u.type)).map((u) => u.owner));
   const convoyZone = isSea(id) && warOwners.size > 0 && neighbours(id).some((n) => {
     const lt = state.territories[n]; const d = TERRITORY_INDEX[n];
-    return !isSea(n) && lt?.controller && d && d.ipc > 0 && [...warOwners].some((o) => areEnemies(o, lt.controller!));
+    return !isSea(n) && lt?.controller && d && d.ipc > 0 && [...warOwners].some((o) => areEnemies(state, o, lt.controller!));
   });
   const groups = new Map<string, number>();
   for (const u of ts?.units ?? []) {
