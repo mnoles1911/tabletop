@@ -1,1 +1,138 @@
-# tabletop
+# Axis & Allies — Global 1940 (2nd Edition), Online
+
+A turn-based, **play-by-cloud** implementation of *Axis & Allies Global 1940*.
+Create a game, share the link, and each of 2–7 commanders plays from their own
+device. The server is the single source of truth and re-runs a deterministic
+rules engine for every action, so dice are reproducible and nobody can cheat
+the state.
+
+> **Status:** playable end-to-end vertical slice. The engine, turn structure,
+> economy, movement, and combat are implemented and tested; the map is a
+> faithful, fully-connected *seed* of the full board. See **Roadmap** below for
+> exactly what is wired vs. still stubbed.
+
+## Quick start (local)
+
+```bash
+npm install
+npm run dev        # server on :8787, client on :5173 (proxied)
+```
+
+Open http://localhost:5173 → **Create game** (pick house rules) → share the link.
+Each player opens it, claims one or more powers in the lobby, then anyone hits
+**Start**. The board polls every 2.5s to stay in sync.
+
+## Play on your phone
+
+The UI is fully mobile-responsive (pan/pinch-zoom map, a tap-up control sheet,
+big touch targets). Three ways to get it onto a phone:
+
+**A. Same Wi-Fi (no accounts, easiest).** On your computer:
+```bash
+npm run build && npm start      # serves UI + API on :8787, all interfaces
+```
+Find your computer's LAN IP (`ipconfig` / `ifconfig` / `ip addr` — e.g.
+`192.168.1.42`) and open `http://192.168.1.42:8787` on any phone on the same
+network. Share that address with friends in the house.
+
+**B. Public URL for remote friends — one-tap deploy (Render).** This repo ships
+a `Dockerfile` and `render.yaml`. Push to GitHub → Render → **New > Blueprint**
+→ pick the repo. Render builds the image and hands you a public `https://…`
+URL that you and friends open from anywhere. (Works the same on Railway, Fly.io,
+or Cloud Run via the Dockerfile.)
+
+**C. Your own tunnel.** From your machine (where outbound isn't restricted):
+```bash
+npm start
+npx cloudflared tunnel --url http://localhost:8787   # or: ngrok http 8787
+```
+and share the printed URL.
+
+## Production / Docker
+
+```bash
+docker build -t aa1940 . && docker run -p 8787:8787 -v $PWD/data:/app/data aa1940
+# or, without Docker:
+npm run build && npm start
+```
+
+## Architecture
+
+```
+src/
+  engine/          deterministic, dependency-free TypeScript rules engine
+    data/          units, powers, territories (the game's "rulebook as data")
+    rules/         setup, movement, combat, income, phases, actions, rng
+  server/          Express + SQLite play-by-cloud rooms (REST + polling)
+  client/          React + Vite board UI (SVG map, phase panels)
+```
+
+The **same engine** runs on the server (authoritative) and the client
+(instant feedback + legal-move highlighting). One reducer — `applyAction(state,
+action, actor)` — is the only way the game state ever changes.
+
+### Rules implemented
+
+- **Turn structure:** purchase → combat-move → combat → non-combat-move →
+  mobilize → collect-income, cycling through all nine powers in the official
+  sequence, advancing the round on wrap.
+- **Economy:** IPC treasuries, territory income, the "lose your capital → lose
+  your income (and treasury)" rule.
+- **Movement:** domain-correct pathfinding (land/sea/air) with movement-point
+  budgets, zone-of-control stops, and combat-move vs. non-combat-move rules.
+- **Combat:** AA opening fire, submarine surprise strike (negated by enemy
+  destroyers), artillery→infantry support, tactical-bomber pairing, two-hit
+  capital ships (damage persists between rounds, heals after the battle),
+  conquest & capital looting. Play it **round-by-round** (fight on / retreat /
+  one-click auto-resolve).
+- **Naval transport & amphibious assault:** load land units across a sea zone
+  onto enemy coasts, with **shore bombardment** from battleships/cruisers in the
+  staging zone (assaults can't retreat). Transport capacity tracked per turn.
+- **Strategic bombing:** send bombers at enemy industrial complexes; defending
+  AAA fires, survivors roll for factory **damage** that throttles production
+  until **repaired** in the purchase phase. Heavy Bombers tech rolls two dice.
+- **Research & Development:** spend IPC on research dice; 6s unlock techs (Jet
+  Fighters, Super Subs, Heavy Bombers, War Bonds, Increased Factory Production…)
+  with real combat/economy effects.
+- **Interactive casualties:** the attacker chooses which units absorb each
+  round's hits (or auto cheapest-first).
+- **Production limits:** factories build up to their capacity (major = territory
+  value, minor = 3, ± tech), reduced by bombing damage.
+- **Air & naval bases:** grant +1 movement to air/sea units starting there;
+  aircraft that can't reach a friendly landing spot are lost at turn's end.
+- **Suez canal:** ships pass only if a friendly power controls Egypt.
+- **House rules:** Low Luck dice, National Objective income, victory by capitals
+  *or* by N victory cities — all chosen on the main menu.
+- **Lobby:** one player may control several powers, so 2–7 friends fill all nine
+  seats; unclaimed powers stay open and co-operatively controllable.
+
+### Unit & power data
+
+All Attack/Defense/Move/Cost values in `src/engine/data/units.ts` match the
+Global 1940 2nd-edition rulebook. The nine powers, alliances, capitals,
+turn order, and starting IPC are in `src/engine/data/powers.ts`.
+
+## Roadmap (toward full-rulebook fidelity)
+
+Most systems are in. What remains is breadth and a few edge rules:
+
+1. **Full 150-territory map** — the board is now 59 territories on the exact
+   production schema; the rest is data entry in `territories.ts`.
+2. **Scrambling** fighters from air bases to defend adjacent sea battles
+   (the bases exist; the defensive interrupt is the remaining piece).
+3. **Panama Canal** (Suez is implemented) — needs a Central-America territory.
+4. **Kamikaze** strikes and **pro-faction neutral** collapse mechanics.
+
+Implemented: turn structure, IPC economy, National Objectives, convoy
+disruption, movement (with air/naval-base +1 range and the Suez canal gate),
+combat (amphibious, shore bombardment, strategic bombing), interactive
+casualties, transports, research & six techs, production limits & factory
+repair, air-landing enforcement, capture-on-move / neutral annexation, and
+victory conditions.
+
+## Testing
+
+```bash
+npm test           # node:test engine suite (determinism, economy, phases)
+npm run typecheck
+```

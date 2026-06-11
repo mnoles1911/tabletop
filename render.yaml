@@ -1,0 +1,25 @@
+# Render.com Blueprint — deploy with one click for phone play.
+#
+# 1. Push this repo to GitHub.
+# 2. In Render: New > Blueprint > pick this repo. Render reads this file,
+#    builds the Docker image, and gives you a public https URL.
+# 3. Open that URL on your phone (and share it with friends).
+#
+# The free plan works for testing; add the persistent disk (below) so games
+# survive restarts.
+services:
+  - type: web
+    name: axis-allies-1940
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 8787
+      - key: AA_DB
+        value: /app/data/games.db
+    disk:
+      name: aa-data
+      mountPath: /app/data
+      sizeGB: 1
