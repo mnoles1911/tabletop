@@ -5,7 +5,18 @@ import { areEnemies, declareWar } from "./politics.js";
 import { TERRITORY_INDEX } from "../data/territories.js";
 import { executeMove, checkMove } from "./movement.js";
 import { executeTransport } from "./transport.js";
-import { resolveBattle, stepBattle, retreatBattle, assignCasualties, autoCasualties } from "./combat.js";
+import {
+  resolveBattle,
+  stepBattle,
+  retreatBattle,
+  assignCasualties,
+  autoCasualties,
+  acceptScramble,
+  declineScramble,
+  submergeSubs,
+  battleDefender,
+  type BattleSide,
+} from "./combat.js";
 import { advancePhase, placeUnit, repairFactory, log } from "./phases.js";
 import { buyResearch, techName } from "./research.js";
 import { addUnits, removeUnits } from "./setup.js";
@@ -27,8 +38,11 @@ export type Action =
   | { kind: "resolve_battle"; territory: string }
   | { kind: "battle_round"; territory: string }
   | { kind: "battle_retreat"; territory: string }
-  | { kind: "assign_casualties"; territory: string; losses: { type: UnitTypeId; count: number }[] }
-  | { kind: "auto_casualties"; territory: string }
+  | { kind: "assign_casualties"; territory: string; losses: { type: UnitTypeId; count: number }[]; side?: BattleSide }
+  | { kind: "auto_casualties"; territory: string; side?: BattleSide }
+  | { kind: "scramble"; territory: string }
+  | { kind: "decline_scramble"; territory: string }
+  | { kind: "battle_submerge"; territory: string; side: BattleSide }
   | { kind: "place"; unit: UnitTypeId; territory: string }
   | { kind: "repair"; territory: string; amount: number }
   | { kind: "research"; dice: number }
@@ -45,9 +59,55 @@ function requireActive(state: GameState, actor: PowerId): string | null {
   return null;
 }
 
+/**
+ * Whose input the game is waiting on. Usually the active power, but during
+ * combat a battle may be paused on the DEFENDER (scramble decision or
+ * defender casualty choice) — that power acts out of turn.
+ */
+export function expectedActor(state: GameState): PowerId {
+  if (state.phase === "combat") {
+    for (const b of state.combat.battles) {
+      if (b.resolved) continue;
+      if (b.awaitingScramble || (b.pendingDefenderHits ?? 0) > 0) {
+        const d = b.defender ?? battleDefender(state, b.territory, b.attacker);
+        if (d !== "Neutral") return d;
+      }
+    }
+  }
+  return state.activePower;
+}
+
+/** Battle prompts the defending power may answer during the attacker's turn. */
+const DEFENDER_ACTIONS = new Set<Action["kind"]>([
+  "assign_casualties",
+  "auto_casualties",
+  "scramble",
+  "decline_scramble",
+  "battle_submerge",
+]);
+
+/** May `actor` act on this battle prompt (as attacker or defender)? */
+function battleActorError(state: GameState, territory: string, actor: PowerId): string | null {
+  const battle = state.combat.battles.find((b) => b.territory === territory);
+  if (!battle) return "No battle there.";
+  const defender = battle.defender ?? battleDefender(state, territory, battle.attacker);
+  if (actor === battle.attacker || actor === defender) return null;
+  return `Only ${POWERS[battle.attacker].display} or ${POWERS[defender].display} act in this battle.`;
+}
+
 export function applyAction(state: GameState, action: Action, actor: PowerId): ActionResult {
   const turnError = requireActive(state, actor);
-  if (turnError && action.kind !== "advance_phase") return { ok: false, error: turnError };
+  if (turnError && action.kind !== "advance_phase") {
+    // Defending players answer battle prompts during the attacker's turn.
+    const battleTerr = "territory" in action ? (action as { territory: string }).territory : undefined;
+    const offTurnOk =
+      !state.winner &&
+      DEFENDER_ACTIONS.has(action.kind) &&
+      state.phase === "combat" &&
+      battleTerr !== undefined &&
+      battleActorError(state, battleTerr, actor) === null;
+    if (!offTurnOk) return { ok: false, error: turnError };
+  }
 
   switch (action.kind) {
     case "declare_war": {
@@ -149,14 +209,49 @@ export function applyAction(state: GameState, action: Action, actor: PowerId): A
 
     case "assign_casualties": {
       if (state.phase !== "combat") return { ok: false, error: "Not in combat." };
-      const r = assignCasualties(state, action.territory, action.losses);
+      const authErr = battleActorError(state, action.territory, actor);
+      if (authErr) return { ok: false, error: authErr };
+      const battle = state.combat.battles.find((b) => b.territory === action.territory)!;
+      const side: BattleSide = action.side ?? (actor === battle.attacker ? "attacker" : "defender");
+      const sidePower = side === "attacker" ? battle.attacker : battle.defender ?? battleDefender(state, action.territory, battle.attacker);
+      if (actor !== sidePower) return { ok: false, error: "You choose casualties for your own side only." };
+      const r = assignCasualties(state, action.territory, action.losses, side);
       for (const line of r.notes) log(state, line);
       return r.ok ? { ok: true } : { ok: false, error: r.notes[0] };
     }
 
     case "auto_casualties": {
       if (state.phase !== "combat") return { ok: false, error: "Not in combat." };
-      const r = autoCasualties(state, action.territory);
+      const authErr = battleActorError(state, action.territory, actor);
+      if (authErr) return { ok: false, error: authErr };
+      const battle = state.combat.battles.find((b) => b.territory === action.territory)!;
+      const side: BattleSide = action.side ?? (actor === battle.attacker ? "attacker" : "defender");
+      const r = autoCasualties(state, action.territory, side);
+      for (const line of r.notes) log(state, line);
+      return r.ok ? { ok: true } : { ok: false, error: r.notes[0] };
+    }
+
+    case "scramble":
+    case "decline_scramble": {
+      if (state.phase !== "combat") return { ok: false, error: "Not in combat." };
+      const battle = state.combat.battles.find((b) => b.territory === action.territory);
+      if (!battle?.awaitingScramble) return { ok: false, error: "No scramble decision pending." };
+      const defender = battle.defender ?? battleDefender(state, action.territory, battle.attacker);
+      if (actor !== defender) return { ok: false, error: "Only the defender decides whether to scramble." };
+      const r = action.kind === "scramble" ? acceptScramble(state, action.territory) : declineScramble(state, action.territory);
+      for (const line of r.notes) log(state, line);
+      return r.ok ? { ok: true } : { ok: false, error: r.notes[0] };
+    }
+
+    case "battle_submerge": {
+      if (state.phase !== "combat") return { ok: false, error: "Not in combat." };
+      const authErr = battleActorError(state, action.territory, actor);
+      if (authErr) return { ok: false, error: authErr };
+      const battle = state.combat.battles.find((b) => b.territory === action.territory)!;
+      const defender = battle.defender ?? battleDefender(state, action.territory, battle.attacker);
+      const sidePower = action.side === "attacker" ? battle.attacker : defender;
+      if (actor !== sidePower) return { ok: false, error: "You submerge your own submarines only." };
+      const r = submergeSubs(state, action.territory, action.side);
       for (const line of r.notes) log(state, line);
       return r.ok ? { ok: true } : { ok: false, error: r.notes[0] };
     }

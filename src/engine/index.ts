@@ -8,9 +8,24 @@ export { TERRITORIES, TERRITORY_INDEX, isSea, isLand, CANALS, canalGate, canalGa
 export type { Canal } from "./data/territories.js";
 export { BORDERS } from "./data/borders.js";
 export { createInitialState, neighbours, unitsOf } from "./rules/setup.js";
-export { applyAction } from "./rules/actions.js";
+export { applyAction, expectedActor } from "./rules/actions.js";
 export type { Action, ActionResult } from "./rules/actions.js";
-export { resolveBattle, stepBattle, retreatBattle, assignCasualties, autoCasualties, KAMIKAZE_ISLANDS } from "./rules/combat.js";
+export {
+  resolveBattle,
+  stepBattle,
+  retreatBattle,
+  assignCasualties,
+  autoCasualties,
+  acceptScramble,
+  declineScramble,
+  submergeSubs,
+  battleDefender,
+  scrambleSources,
+  attackDice,
+  defenseDice,
+  KAMIKAZE_ISLANDS,
+} from "./rules/combat.js";
+export type { BattleSide, StepResult } from "./rules/combat.js";
 export type { CombatResult } from "./rules/combat.js";
 export { checkMove, movementAllowance } from "./rules/movement.js";
 export type { MoveRequest, MoveCheck } from "./rules/movement.js";

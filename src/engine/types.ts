@@ -170,6 +170,8 @@ export interface PendingPurchase {
 export interface PendingBattle {
   territory: string;
   attacker: PowerId;
+  /** Primary defending power (answers scramble & casualty prompts). */
+  defender?: PowerId;
   /** True once the battle has been fully resolved. */
   resolved: boolean;
   /** Set when this battle is an amphibious assault (carries shore bombard). */
@@ -180,10 +182,16 @@ export interface PendingBattle {
   sbr?: boolean;
   /** True once opening fire (AA / sub surprise / bombardment) has been applied. */
   started?: boolean;
+  /** Awaiting the defender's decision to scramble aircraft into this sea battle. */
+  awaitingScramble?: boolean;
   /** Regular combat rounds fought so far (for round-by-round resolution). */
   roundsFought?: number;
-  /** Attacker hits awaiting manual casualty assignment (interactive play). */
+  /** Hits the ATTACKER must absorb, awaiting manual casualty assignment. */
   pendingAttackerHits?: number;
+  /** Hits the DEFENDER must absorb, awaiting manual casualty assignment. */
+  pendingDefenderHits?: number;
+  /** Submarines that submerged out of the fight, returned to the zone at settle. */
+  submergedSubs?: { owner: PowerId; count: number }[];
   /** The most recent round's dice, surfaced to the UI. */
   lastRound?: {
     attackerRolls: number[];
