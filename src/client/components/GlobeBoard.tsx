@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, useLoader, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Line, Html, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import {
@@ -26,6 +26,29 @@ import {
 
 const R = 1;
 const DEG = Math.PI / 180;
+const RAD = 180 / Math.PI;
+const EARTH_SRC = `${import.meta.env.BASE_URL}earth_day.jpg`;
+
+/**
+ * A sphere whose UVs are recomputed to match our `ll2v` mapping exactly, so a
+ * daytime satellite texture lines up with the provinces (longitude aligns; the
+ * board projection makes latitude approximate). Used as a faint terrain layer
+ * under the playable province regions.
+ */
+function geoSphere(radius: number, seg = 96): THREE.SphereGeometry {
+  const g = new THREE.SphereGeometry(radius, seg, seg);
+  const pos = g.attributes.position;
+  const uv = g.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const r = Math.sqrt(x * x + y * y + z * z) || 1;
+    const lat = 90 - Math.acos(y / r) * RAD;
+    const lon = Math.atan2(z, -x) * RAD - 180;
+    uv.setXY(i, (lon + 180) / 360, (lat + 90) / 180);
+  }
+  uv.needsUpdate = true;
+  return g;
+}
 
 /** Geographic (lat, lon) -> point on a sphere aligned with an equirectangular layout. */
 function ll2v(lat: number, lon: number, r = R): THREE.Vector3 {
@@ -198,20 +221,36 @@ function Piece({ cell, state }: { cell: Cell; state: GameState }) {
   );
 }
 
+function Globe() {
+  const texture = useLoader(THREE.TextureLoader, EARTH_SRC);
+  const oceanGeo = useMemo(() => new THREE.SphereGeometry(R * 0.999, 96, 96), []);
+  const terrainGeo = useMemo(() => geoSphere(R, 96), []);
+  return (
+    <>
+      {/* Opaque ocean base so the globe always reads as a planet. */}
+      <mesh geometry={oceanGeo}>
+        <meshStandardMaterial color="#13456e" roughness={0.9} metalness={0.05} />
+      </mesh>
+      {/* Faint daytime satellite terrain (~50%) so zooming reveals real land. */}
+      <mesh geometry={terrainGeo}>
+        <meshStandardMaterial map={texture} transparent opacity={0.5} roughness={1} metalness={0} depthWrite={false} />
+      </mesh>
+    </>
+  );
+}
+
 function Scene(props: Props) {
   const cells = useCells();
 
   return (
     <>
-      <ambientLight intensity={0.85} />
-      <directionalLight position={[5, 3, 5]} intensity={1.05} />
+      <ambientLight intensity={0.9} />
+      <directionalLight position={[5, 3, 5]} intensity={1.0} />
       <Stars radius={50} depth={20} count={1500} factor={2} fade />
 
-      {/* Ocean sphere — the provinces themselves form the continents on top. */}
-      <mesh>
-        <sphereGeometry args={[R, 96, 96]} />
-        <meshStandardMaterial color="#0f3a63" roughness={0.85} metalness={0.05} />
-      </mesh>
+      <React.Suspense fallback={<mesh><sphereGeometry args={[R, 48, 48]} /><meshStandardMaterial color="#0f3a63" /></mesh>}>
+        <Globe />
+      </React.Suspense>
 
       {cells.map((c) => (
         <Province key={c.id} cell={c} {...props} />

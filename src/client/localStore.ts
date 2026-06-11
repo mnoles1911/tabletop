@@ -28,6 +28,20 @@ function save(id: string, state: GameState): void {
   localStorage.setItem(KEY(id), JSON.stringify(state));
 }
 
+// --- Shared helpers used by the save/restore system ----------------------
+/** Read a locally-stored game's state, or null if it isn't on this device. */
+export const readLocalGame = (id: string): GameState | null => load(id);
+/** Write/overwrite a locally-stored game (used to install an imported save). */
+export const writeLocalGame = (id: string, state: GameState): void => save(id, state);
+/** True if a game with this id is stored on this device. */
+export const hasLocalGame = (id: string): boolean =>
+  localStorage.getItem(KEY(id)) !== null;
+/** All game ids currently stored on this device. */
+export const listLocalGameIds = (): string[] =>
+  Object.keys(localStorage)
+    .filter((k) => k.startsWith("aa_local_"))
+    .map((k) => k.slice("aa_local_".length));
+
 const seatsAll = (): Seat[] => TURN_ORDER.map((p) => ({ power: p, claimed: true, name: "You" }));
 
 function view(id: string, state: GameState): GameView {

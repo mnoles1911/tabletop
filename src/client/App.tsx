@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   checkMove,
   placementOptions,
@@ -8,6 +8,13 @@ import {
 } from "@engine/index";
 import { type GameView } from "./api.js";
 import { backend, LOCAL } from "./backend.js";
+import {
+  recordGame,
+  exportSaveFile,
+  autoBackupEnabled,
+  setAutoBackup,
+  loadMirror,
+} from "./saves.js";
 import { GlobeBoard as Board } from "./components/GlobeBoard.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { Lobby } from "./components/Lobby.js";
@@ -33,6 +40,14 @@ export function App() {
   const [selectedCount, setSelectedCount] = useState(1);
   const [mobilizeUnit, setMobilizeUnit] = useState<UnitTypeId | null>(null);
   const [sheetOpen, setSheetOpen] = useState(true); // mobile bottom sheet
+  const [autoBackup, setAuto] = useState(autoBackupEnabled());
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  // Latest view kept in a ref so the (memoised) refresh can use it for the
+  // offline mirror fallback without re-subscribing on every state change.
+  const viewRef = useRef<GameView | null>(null);
+  viewRef.current = view;
+  const lastRoundRef = useRef(0);
 
   useEffect(() => {
     if (name) localStorage.setItem("aa_name", name);
@@ -44,9 +59,55 @@ export function App() {
       const v = await backend.fetchGame(gameId, token);
       setView(v);
     } catch (e) {
+      // Disconnect / dropped connection: fall back to the last autosaved board
+      // so the player still sees the game while we keep retrying in the back-
+      // ground. The server (cloud) remains the source of truth on reconnect.
+      if (!viewRef.current && !LOCAL) {
+        const mirror = loadMirror(gameId);
+        if (mirror) {
+          setView({
+            gameId,
+            started: true,
+            options: mirror.options,
+            state: mirror,
+            seats: [],
+            youPowers: [],
+            youJoined: true,
+          });
+          setError("Offline — showing your last saved board. Reconnecting…");
+          return;
+        }
+      }
       setError((e as Error).message);
     }
   }, [gameId, token]);
+
+  // Continuous autosave: record the game in this device's registry (and mirror
+  // cloud state) on every update, and auto-download a backup at each new round
+  // when the player has opted in.
+  useEffect(() => {
+    if (!view || !view.started) return;
+    recordGame(view, LOCAL ? "local" : "cloud");
+    const round = view.state.round;
+    if (autoBackup && lastRoundRef.current && round > lastRoundRef.current) {
+      exportSaveFile(view);
+    }
+    lastRoundRef.current = round;
+    setSavedFlash(true);
+    const t = setTimeout(() => setSavedFlash(false), 1200);
+    return () => clearTimeout(t);
+  }, [view, autoBackup]);
+
+  const saveToFile = useCallback(() => {
+    if (view) exportSaveFile(view);
+  }, [view]);
+
+  const toggleAutoBackup = useCallback(() => {
+    setAuto((on) => {
+      setAutoBackup(!on);
+      return !on;
+    });
+  }, []);
 
   useEffect(() => {
     if (!gameId) return;
@@ -167,6 +228,15 @@ export function App() {
       <div className="board-wrap">
         {view.state.winner && <div className="banner">🏆 {view.state.winner} Victory!</div>}
         <Board state={view.state} selected={selectedTerr} targets={targets} battles={battles} onPick={onPick} />
+        <div className="save-bar">
+          <span className={`save-dot ${savedFlash ? "on" : ""}`} title="Autosaved to this browser">
+            {savedFlash ? "Saved ✓" : "Autosave on"}
+          </span>
+          <button onClick={saveToFile} title="Download a .json save you can reload later">💾 Save file</button>
+          <button className={autoBackup ? "active" : ""} onClick={toggleAutoBackup} title="Auto-download a backup at the start of each round">
+            ⤓ Each round
+          </button>
+        </div>
         {error && <div className="error-toast" onClick={() => setError(null)}>{error}</div>}
         <button className="sheet-toggle" onClick={() => setSheetOpen((s) => !s)}>
           {sheetOpen ? "▾ Hide panel" : "▴ Show controls"}

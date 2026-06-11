@@ -1,9 +1,17 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import type { GameOptions } from "@engine/index";
 import { backend, LOCAL } from "../backend.js";
+import {
+  listRecent,
+  removeRecent,
+  readSaveFile,
+  installSave,
+  type RecentGame,
+} from "../saves.js";
 
-// The landing screen: start a new game (choosing house rules) or join one by
-// code. Designed mobile-first — big tap targets, single-column, fits a phone.
+// The landing screen: start a new game (choosing house rules), resume a game
+// saved on this device, load a save file, or join one by code. Designed
+// mobile-first — big tap targets, single-column, fits a phone.
 
 interface Props {
   onEnter: (gameId: string) => void;
@@ -21,6 +29,24 @@ export function MainMenu({ onEnter }: Props) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recent, setRecent] = useState<RecentGame[]>(() => listRecent());
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function loadFile(file: File) {
+    setError(null);
+    try {
+      const save = await readSaveFile(file);
+      const id = installSave(save);
+      onEnter(id);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  function forget(id: string) {
+    removeRecent(id);
+    setRecent(listRecent());
+  }
 
   async function create() {
     setBusy(true);
@@ -114,6 +140,44 @@ export function MainMenu({ onEnter }: Props) {
         </button>
         {error && <div className="hint" style={{ color: "var(--danger)" }}>{error}</div>}
       </div>
+
+      {(recent.length > 0 || LOCAL) && (
+        <div className="card menu-card">
+          <div className="section-title">Continue a game</div>
+          {recent.length === 0 && (
+            <div className="hint">No saved games on this device yet. Your games autosave here as you play.</div>
+          )}
+          {recent.map((g) => (
+            <div className="seat-row" key={g.id}>
+              <span>
+                <b>{g.id}</b>
+                <div className="hint">
+                  Round {g.round} · {g.phase.replace(/_/g, " ")} · {g.activePower}
+                  {g.mode === "cloud" ? " · cloud" : ""}
+                </div>
+              </span>
+              <span className="row">
+                <button className="primary" onClick={() => onEnter(g.id)}>Resume</button>
+                <button onClick={() => forget(g.id)} title="Remove from this list">✕</button>
+              </span>
+            </div>
+          ))}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) loadFile(f);
+              e.target.value = "";
+            }}
+          />
+          <button className="mt" style={{ width: "100%" }} onClick={() => fileRef.current?.click()}>
+            📂 Load save file…
+          </button>
+        </div>
+      )}
 
       {!LOCAL && (
         <div className="card menu-card">
