@@ -11,6 +11,13 @@ import { estimateStrengthDifference } from "./ProBattleUtils.js";
 import { findTerritoryValues } from "./ProTerritoryValueUtils.js";
 import { landDistance, distanceToNearestEnemyLand } from "./ProMapGraph.js";
 import { buildProData } from "./ProData.js";
+import {
+  populateAttackOptions,
+  populateEnemyAttackOptions,
+} from "./ProTerritoryManager.js";
+import { calculateMoveActions } from "./ProMoveUtils.js";
+import { findPurchaseOptions, findLandPurchaseOptions } from "./ProPurchaseUtils.js";
+import { applyAction } from "../../rules/actions.js";
 
 /** A fresh state with Germany & USSR at war (a convenient land belligerent pair). */
 function warState(): GameState {
@@ -150,4 +157,68 @@ test("ProData: snapshot has capital, enemy capitals and unit territories", () =>
   assert.ok(pd.myUnitTerritories.includes("germany"), "Germany has units at home");
   assert.equal(pd.unitValue["infantry"], 3);
   assert.ok(pd.minCostPerHitPoint <= 3, "infantry sets the cheapest cost/HP");
+});
+
+test("territory manager: Germany attack options include the Baltic States", () => {
+  const state = warState();
+  state.phase = "combat_move";
+  const { moveMap } = populateAttackOptions(state, "Germany");
+  const baltic = moveMap["baltic_states"];
+  assert.ok(baltic, "baltic_states should be an attack candidate (Soviet-held)");
+  const total = baltic.maxUnits.reduce((n, u) => n + u.count, 0);
+  assert.ok(total > 0, `expected reachable attackers, got ${total}`);
+  // The adjacent Polish garrison can reach it.
+  assert.ok(
+    baltic.maxUnits.some((u) => u.from === "poland"),
+    "Polish units should be able to reach the Baltic States",
+  );
+});
+
+test("territory manager: enemy attack options show a UK threat to German coast", () => {
+  // G40 default already has Germany at war with the UK bloc — no setWar needed.
+  const state = createInitialState(12345);
+  state.phase = "combat_move";
+  const enemyMap = populateEnemyAttackOptions(state, "Germany");
+  assert.ok(Object.keys(enemyMap).length > 0, "enemy attack map should be non-empty");
+  // western_germany is a German-controlled coastal territory; UK air/units reach it.
+  const wg = enemyMap["western_germany"];
+  assert.ok(wg, "western_germany should be threatened");
+  const ukThreatens = wg.maxUnits.some((u) =>
+    (state.territories[u.from]?.units ?? []).some((x) => x.owner === "UnitedKingdom"),
+  );
+  assert.ok(ukThreatens, "a UK stack should threaten western_germany");
+});
+
+test("move utils: committed Baltic attack yields all-valid engine actions", () => {
+  const state = warState();
+  state.phase = "combat_move";
+  const { moveMap } = populateAttackOptions(state, "Germany");
+  const baltic = moveMap["baltic_states"];
+  // Commit just the Polish attackers.
+  baltic.units = baltic.maxUnits.filter((u) => u.from === "poland");
+  const actions = calculateMoveActions(state, "Germany", [baltic], true);
+  assert.ok(actions.length > 0, "should emit at least one move action");
+
+  const clone: GameState = structuredClone(state);
+  clone.phase = "combat_move";
+  clone.activePower = "Germany";
+  for (const action of actions) {
+    const r = applyAction(clone, action, "Germany");
+    assert.ok(r.ok, `action ${JSON.stringify(action)} should succeed: ${r.error}`);
+  }
+});
+
+test("purchase utils: China is infantry-only; infantry has best cost/HP on land", () => {
+  const china = findPurchaseOptions("China");
+  assert.deepEqual(
+    china.map((o) => o.type),
+    ["infantry"],
+    "China may only build infantry",
+  );
+
+  const land = findLandPurchaseOptions("Germany").filter((o) => !o.isInfrastructure);
+  const cheapest = land.reduce((best, o) =>
+    o.costPerHitPoint < best.costPerHitPoint ? o : best,
+  );
+  assert.equal(cheapest.type, "infantry", "infantry has the best cost-per-hitpoint among land units");
 });
