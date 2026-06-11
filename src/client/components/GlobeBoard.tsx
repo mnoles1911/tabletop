@@ -26,9 +26,14 @@ const WARSHIPS = new Set<UnitTypeId>(["destroyer", "cruiser", "battleship", "air
 // The world is a sphere whose continents ARE the Axis & Allies provinces (real
 // board outlines wrapped onto the sphere) over an opaque daytime satellite layer
 // (warped by tools/triplea/warp_earth.py so its coastlines match the board).
-// Forces are little 3D models — infantry, tanks, planes, warships, factories —
-// standing on the surface, sized by stack strength. Moves animate: land units
-// slide, ships sail along the surface, aircraft arc overhead.
+//
+// Detail is ZOOM-AWARE so the board reads cleanly at every scale:
+//   far  (cam > ~2.5) — one clean force dot per occupied territory, no models,
+//                       no count chips, only capital labels.
+//   mid  (~1.7–2.5)  — 3D models + count chips for real stacks, city labels.
+//   near (cam < ~1.7) — full detail, every label.
+// The transition is faded (opacity) rather than popped, and the bucket is only
+// recomputed when the camera crosses a threshold (no per-frame React churn).
 // ============================================================================
 
 const R = 1;
@@ -38,6 +43,19 @@ const Y = new THREE.Vector3(0, 1, 0);
 // Imported as a hashed Vite asset so deploys are never hidden by a stale
 // browser/CDN cache of the old map imagery.
 import EARTH_SRC from "../assets/earth_day.jpg";
+
+// --- Zoom state -------------------------------------------------------------
+// A single shared object the whole scene reads from. `dist` is updated every
+// frame (cheap, no React), `bucket` flips only at threshold crossings.
+type ZoomBucket = "far" | "mid" | "near";
+const NEAR_MAX = 1.72; // camera distance below this = near
+const FAR_MIN = 2.5; //  above this = far
+interface ZoomRef {
+  dist: number;
+  bucket: ZoomBucket;
+  // 0 at near edge → 1 at far edge of the mid band; lets markers/models fade.
+  detail: number; // 1 = full detail (near), 0 = no models (far)
+}
 
 function ll2v(lat: number, lon: number, r = R): THREE.Vector3 {
   const phi = (90 - lat) * DEG;
@@ -74,66 +92,83 @@ function controllerColor(state: GameState, id: string): string {
 // --- 3D unit models --------------------------------------------------------
 // Small parametric models (no external assets, so it works fully offline).
 // Built around the origin standing on +Y; the parent group tilts them so they
-// stand upright on the globe surface.
+// stand upright on the globe surface. Materials are muted (roughness ~0.7, no
+// garish metalness) so they read as solid silhouettes rather than shiny sticks.
 
-const STEEL = "#c2c9d4";
-const DARK = "#20242c";
+const STEEL = "#aab2c0";
+const DARK = "#23272f";
+const GUN = "#191c22";
+
+// One shared material config keeps every model matte + consistent.
+const matte = { roughness: 0.72, metalness: 0.0 } as const;
 
 function UnitModel({ type, color }: { type: UnitTypeId; color: string }) {
   switch (type) {
     case "infantry":
       return (
         <group>
-          <mesh position={[0, 0.009, 0]}><capsuleGeometry args={[0.004, 0.01, 3, 6]} /><meshStandardMaterial color={color} /></mesh>
-          <mesh position={[0, 0.018, 0]}><sphereGeometry args={[0.0045, 8, 8]} /><meshStandardMaterial color={color} /></mesh>
+          <mesh position={[0, 0.009, 0]}><capsuleGeometry args={[0.0045, 0.011, 4, 8]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          <mesh position={[0, 0.02, 0]}><sphereGeometry args={[0.005, 10, 10]} /><meshStandardMaterial color={color} {...matte} /></mesh>
         </group>
       );
     case "mech_infantry":
       return (
         <group>
-          <mesh position={[0, 0.006, 0]}><boxGeometry args={[0.02, 0.008, 0.01]} /><meshStandardMaterial color={color} /></mesh>
-          <mesh position={[0.004, 0.015, 0]}><capsuleGeometry args={[0.0035, 0.008, 3, 6]} /><meshStandardMaterial color={color} /></mesh>
+          <mesh position={[0, 0.006, 0]}><boxGeometry args={[0.022, 0.009, 0.012]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          <mesh position={[0, 0.002, 0.0075]}><boxGeometry args={[0.024, 0.005, 0.003]} /><meshStandardMaterial color={DARK} {...matte} /></mesh>
+          <mesh position={[0, 0.002, -0.0075]}><boxGeometry args={[0.024, 0.005, 0.003]} /><meshStandardMaterial color={DARK} {...matte} /></mesh>
+          <mesh position={[0.004, 0.016, 0]}><capsuleGeometry args={[0.004, 0.008, 3, 8]} /><meshStandardMaterial color={color} {...matte} /></mesh>
         </group>
       );
     case "artillery":
       return (
         <group>
-          <mesh position={[0, 0.005, 0]}><boxGeometry args={[0.012, 0.008, 0.01]} /><meshStandardMaterial color={color} /></mesh>
-          <mesh position={[0.012, 0.012, 0]} rotation={[0, 0, -0.7]}><cylinderGeometry args={[0.0016, 0.0016, 0.022, 8]} /><meshStandardMaterial color={DARK} /></mesh>
+          <mesh position={[0, 0.005, 0]}><boxGeometry args={[0.013, 0.008, 0.011]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          <mesh position={[0, 0.001, 0]}><cylinderGeometry args={[0.0065, 0.0065, 0.004, 12]} /><meshStandardMaterial color={DARK} {...matte} /></mesh>
+          <mesh position={[0.013, 0.013, 0]} rotation={[0, 0, -0.6]}><cylinderGeometry args={[0.0017, 0.0017, 0.024, 8]} /><meshStandardMaterial color={GUN} {...matte} /></mesh>
         </group>
       );
     case "tank":
       return (
         <group>
-          <mesh position={[0, 0.006, 0]}><boxGeometry args={[0.022, 0.009, 0.013]} /><meshStandardMaterial color={color} metalness={0.3} roughness={0.6} /></mesh>
-          <mesh position={[0, 0.014, 0]}><boxGeometry args={[0.012, 0.007, 0.01]} /><meshStandardMaterial color={color} /></mesh>
-          <mesh position={[0.016, 0.014, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.0015, 0.0015, 0.018, 8]} /><meshStandardMaterial color={DARK} /></mesh>
+          {/* hull + track skirts */}
+          <mesh position={[0, 0.0065, 0]}><boxGeometry args={[0.024, 0.008, 0.014]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          <mesh position={[0, 0.003, 0.0085]}><boxGeometry args={[0.026, 0.007, 0.004]} /><meshStandardMaterial color={DARK} {...matte} /></mesh>
+          <mesh position={[0, 0.003, -0.0085]}><boxGeometry args={[0.026, 0.007, 0.004]} /><meshStandardMaterial color={DARK} {...matte} /></mesh>
+          {/* turret + barrel */}
+          <mesh position={[-0.002, 0.014, 0]}><boxGeometry args={[0.013, 0.007, 0.011]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          <mesh position={[0.014, 0.015, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.0015, 0.0015, 0.02, 8]} /><meshStandardMaterial color={GUN} {...matte} /></mesh>
         </group>
       );
     case "aa_gun":
       return (
         <group>
-          <mesh position={[0, 0.005, 0]}><boxGeometry args={[0.012, 0.007, 0.012]} /><meshStandardMaterial color={color} /></mesh>
-          <mesh position={[0, 0.016, 0]} rotation={[0.5, 0, 0]}><cylinderGeometry args={[0.0012, 0.0012, 0.018, 6]} /><meshStandardMaterial color={DARK} /></mesh>
+          <mesh position={[0, 0.005, 0]}><boxGeometry args={[0.013, 0.007, 0.013]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          <mesh position={[0, 0.016, 0]} rotation={[0.5, 0, 0]}><cylinderGeometry args={[0.0013, 0.0013, 0.02, 8]} /><meshStandardMaterial color={GUN} {...matte} /></mesh>
         </group>
       );
     case "fighter":
     case "tactical_bomber":
     case "strategic_bomber": {
       const big = type === "strategic_bomber" ? 1.5 : type === "tactical_bomber" ? 1.2 : 1;
+      // fuselage points along +Z; swept wings sit at the shoulders.
       return (
-        <group position={[0, 0.03, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <mesh><coneGeometry args={[0.005 * big, 0.026 * big, 8]} /><meshStandardMaterial color={color} metalness={0.4} roughness={0.5} /></mesh>
-          <mesh position={[0, 0.002, 0]}><boxGeometry args={[0.03 * big, 0.001, 0.006 * big]} /><meshStandardMaterial color={color} /></mesh>
-          <mesh position={[0, -0.011 * big, 0]}><boxGeometry args={[0.012 * big, 0.001, 0.004 * big]} /><meshStandardMaterial color={color} /></mesh>
+        <group position={[0, 0.032, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <mesh><coneGeometry args={[0.0055 * big, 0.03 * big, 10]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          {/* swept main wing (parallelogram via skewed box) */}
+          <mesh position={[0, 0.001, 0]} rotation={[0, 0, 0.18]}><boxGeometry args={[0.032 * big, 0.0012, 0.008 * big]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          {/* tailplane */}
+          <mesh position={[0, -0.012 * big, 0]}><boxGeometry args={[0.014 * big, 0.0011, 0.005 * big]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          {/* vertical fin */}
+          <mesh position={[0, -0.012 * big, 0.003]} rotation={[Math.PI / 2, 0, 0]}><boxGeometry args={[0.0011, 0.006 * big, 0.005 * big]} /><meshStandardMaterial color={DARK} {...matte} /></mesh>
         </group>
       );
     }
     case "submarine":
       return (
         <group position={[0, 0.003, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <mesh><capsuleGeometry args={[0.004, 0.024, 4, 8]} /><meshStandardMaterial color={DARK} metalness={0.5} roughness={0.5} /></mesh>
-          <mesh position={[0, 0.001, 0.005]}><boxGeometry args={[0.004, 0.006, 0.004]} /><meshStandardMaterial color={DARK} /></mesh>
+          <mesh><capsuleGeometry args={[0.0045, 0.026, 6, 10]} /><meshStandardMaterial color={DARK} {...matte} /></mesh>
+          <mesh position={[0, 0.0015, 0.006]}><boxGeometry args={[0.004, 0.007, 0.004]} /><meshStandardMaterial color={GUN} {...matte} /></mesh>
         </group>
       );
     case "destroyer":
@@ -141,25 +176,30 @@ function UnitModel({ type, color }: { type: UnitTypeId; color: string }) {
     case "battleship":
     case "aircraft_carrier":
     case "transport": {
-      const len = type === "battleship" || type === "aircraft_carrier" ? 0.04 : type === "cruiser" ? 0.032 : 0.026;
-      const wide = type === "aircraft_carrier" ? 0.016 : 0.01;
+      const len = type === "battleship" || type === "aircraft_carrier" ? 0.042 : type === "cruiser" ? 0.034 : 0.028;
+      const wide = type === "aircraft_carrier" ? 0.017 : 0.011;
+      // Layered hull: a tapered bow box + main hull gives a ship silhouette.
       return (
         <group position={[0, 0.004, 0]}>
-          <mesh rotation={[0, 0, 0]}><boxGeometry args={[len, 0.006, wide]} /><meshStandardMaterial color={color} metalness={0.3} roughness={0.6} /></mesh>
+          <mesh position={[-len * 0.05, 0, 0]}><boxGeometry args={[len * 0.85, 0.006, wide]} /><meshStandardMaterial color={color} {...matte} /></mesh>
+          <mesh position={[len * 0.45, 0, 0]} rotation={[0, 0, 0]}><coneGeometry args={[wide * 0.5, len * 0.22, 4]} /><meshStandardMaterial color={color} {...matte} /></mesh>
           {type === "aircraft_carrier" && (
-            <mesh position={[0, 0.005, 0]}><boxGeometry args={[len * 0.95, 0.001, wide * 0.85]} /><meshStandardMaterial color={STEEL} /></mesh>
+            <mesh position={[0, 0.005, 0]}><boxGeometry args={[len * 0.95, 0.0012, wide * 0.88]} /><meshStandardMaterial color={STEEL} {...matte} /></mesh>
           )}
           {(type === "cruiser" || type === "battleship") && (
-            <mesh position={[0, 0.009, 0]}><boxGeometry args={[len * 0.3, 0.008, wide * 0.6]} /><meshStandardMaterial color={STEEL} /></mesh>
+            <mesh position={[0, 0.0095, 0]}><boxGeometry args={[len * 0.32, 0.008, wide * 0.6]} /><meshStandardMaterial color={STEEL} {...matte} /></mesh>
           )}
           {type === "battleship" && (
-            <mesh position={[len * 0.28, 0.009, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.0012, 0.0012, 0.012, 6]} /><meshStandardMaterial color={DARK} /></mesh>
+            <>
+              <mesh position={[len * 0.26, 0.011, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.0013, 0.0013, 0.013, 6]} /><meshStandardMaterial color={GUN} {...matte} /></mesh>
+              <mesh position={[-len * 0.22, 0.011, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.0013, 0.0013, 0.013, 6]} /><meshStandardMaterial color={GUN} {...matte} /></mesh>
+            </>
           )}
           {type === "transport" && (
-            <mesh position={[0, 0.008, 0]}><boxGeometry args={[len * 0.5, 0.006, wide * 0.8]} /><meshStandardMaterial color="#7a6a44" /></mesh>
+            <mesh position={[0, 0.0085, 0]}><boxGeometry args={[len * 0.5, 0.007, wide * 0.82]} /><meshStandardMaterial color="#7a6a44" {...matte} /></mesh>
           )}
           {type === "destroyer" && (
-            <mesh position={[0, 0.008, 0]}><boxGeometry args={[len * 0.2, 0.006, wide * 0.5]} /><meshStandardMaterial color={STEEL} /></mesh>
+            <mesh position={[0, 0.0085, 0]}><boxGeometry args={[len * 0.22, 0.007, wide * 0.5]} /><meshStandardMaterial color={STEEL} {...matte} /></mesh>
           )}
         </group>
       );
@@ -169,27 +209,28 @@ function UnitModel({ type, color }: { type: UnitTypeId; color: string }) {
       const big = type === "major_ic" ? 1.3 : 1;
       return (
         <group>
-          <mesh position={[0, 0.008 * big, 0]}><boxGeometry args={[0.02 * big, 0.016 * big, 0.016 * big]} /><meshStandardMaterial color="#8a8f99" metalness={0.2} roughness={0.8} /></mesh>
-          <mesh position={[0.006 * big, 0.02 * big, 0]}><cylinderGeometry args={[0.0022, 0.0022, 0.012 * big, 8]} /><meshStandardMaterial color="#5a5f68" /></mesh>
+          <mesh position={[0, 0.008 * big, 0]}><boxGeometry args={[0.02 * big, 0.016 * big, 0.016 * big]} /><meshStandardMaterial color="#8a8f99" roughness={0.85} metalness={0} /></mesh>
+          <mesh position={[0, 0.017 * big, 0]}><boxGeometry args={[0.021 * big, 0.003 * big, 0.017 * big]} /><meshStandardMaterial color="#5a5f68" {...matte} /></mesh>
+          <mesh position={[0.006 * big, 0.022 * big, 0]}><cylinderGeometry args={[0.0022, 0.0022, 0.012 * big, 8]} /><meshStandardMaterial color="#4a4f58" {...matte} /></mesh>
         </group>
       );
     }
     case "air_base":
       return (
         <group>
-          <mesh position={[0, 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[0.016, 16]} /><meshStandardMaterial color="#3a3f47" /></mesh>
-          <mesh position={[0.008, 0.008, 0]}><boxGeometry args={[0.004, 0.014, 0.004]} /><meshStandardMaterial color={STEEL} /></mesh>
+          <mesh position={[0, 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[0.016, 20]} /><meshStandardMaterial color="#33383f" {...matte} /></mesh>
+          <mesh position={[0.008, 0.008, 0]}><boxGeometry args={[0.004, 0.014, 0.004]} /><meshStandardMaterial color={STEEL} {...matte} /></mesh>
         </group>
       );
     case "naval_base":
       return (
         <group>
-          <mesh position={[0, 0.004, 0]}><boxGeometry args={[0.018, 0.006, 0.01]} /><meshStandardMaterial color="#6a6f78" /></mesh>
+          <mesh position={[0, 0.004, 0]}><boxGeometry args={[0.018, 0.006, 0.01]} /><meshStandardMaterial color="#6a6f78" {...matte} /></mesh>
         </group>
       );
     default:
       return (
-        <mesh position={[0, 0.01, 0]}><coneGeometry args={[0.008, 0.02, 6]} /><meshStandardMaterial color={color} /></mesh>
+        <mesh position={[0, 0.01, 0]}><coneGeometry args={[0.008, 0.02, 6]} /><meshStandardMaterial color={color} {...matte} /></mesh>
       );
   }
 }
@@ -280,9 +321,13 @@ function Province({ cell, state, selected, targets, range, battles, onPick, onHo
   const isRange = !!range?.has(cell.id);
   const isBattle = battles.has(cell.id);
   const hot = isSel || isTarget || isBattle || isRange;
-  const color = isBattle ? "#d96a5a" : isTarget ? "#5ad98a" : isRange ? "#3fd0e0" : isSel ? "#d9b24a" : controllerColor(state, cell.id);
-  const opacity = cell.sea ? (hot ? 0.32 : 0.015) : hot ? 0.7 : 0.5;
-  const lineColor = isSel ? "#ffe08a" : cell.sea ? "#1d4a6e" : "#0b1f33";
+  const color = isBattle ? "#e07a68" : isTarget ? "#5ad98a" : isRange ? "#3fd0e0" : isSel ? "#e6c25a" : controllerColor(state, cell.id);
+  // Land fills are kept light so the satellite terrain reads through; sea
+  // fills are essentially invisible unless interactive.
+  const opacity = cell.sea ? (hot ? 0.3 : 0.012) : hot ? 0.46 : 0.16;
+  const lineColor = isSel ? "#ffe08a" : cell.sea ? "#2a5a82" : "#0a1c2e";
+  const lineOpacity = hot ? (cell.sea ? 0.55 : 0.8) : cell.sea ? 0.12 : 0.5;
+  const lineW = isSel ? 2.4 : cell.sea ? 0.35 : 0.6;
   return (
     <>
       <mesh
@@ -295,7 +340,7 @@ function Province({ cell, state, selected, targets, range, battles, onPick, onHo
       </mesh>
       {cell.rings.map((ring, i) =>
         ring.length > 1 ? (
-          <Line key={i} points={ring} color={lineColor} lineWidth={isSel ? 2.2 : cell.sea ? 0.4 : 0.7} transparent opacity={cell.sea ? 0.25 : 0.65} />
+          <Line key={i} points={ring} color={lineColor} lineWidth={lineW} transparent opacity={lineOpacity} />
         ) : null,
       )}
     </>
@@ -311,13 +356,24 @@ function standing(pos: THREE.Vector3): THREE.Quaternion {
  * drei <Html> overlays are DOM elements painted over the canvas, so without
  * help they shine straight through the earth. This wrapper hides the content
  * whenever its surface anchor is on the far side of the globe (a point p on a
- * sphere of radius R is visible from camera c iff p·c > R²).
+ * sphere of radius R is visible from camera c iff p·c > R²), and optionally
+ * cross-fades by zoom bucket via `fade` (returns 0..1 opacity from a ZoomRef).
  */
-function SurfaceHtml({ anchor, children, ...rest }: { anchor: THREE.Vector3 } & React.ComponentProps<typeof Html>) {
+function SurfaceHtml({
+  anchor, children, fade, ...rest
+}: { anchor: THREE.Vector3; fade?: () => number } & React.ComponentProps<typeof Html>) {
   const ref = useRef<HTMLDivElement>(null);
   useFrame(({ camera }) => {
-    if (!ref.current) return;
-    ref.current.style.visibility = anchor.dot(camera.position) > R * R ? "visible" : "hidden";
+    const el = ref.current;
+    if (!el) return;
+    const visible = anchor.dot(camera.position) > R * R;
+    const o = fade ? fade() : 1;
+    if (!visible || o <= 0.01) {
+      el.style.visibility = "hidden";
+    } else {
+      el.style.visibility = "visible";
+      el.style.opacity = String(o);
+    }
   });
   return (
     <Html {...rest}>
@@ -326,7 +382,15 @@ function SurfaceHtml({ anchor, children, ...rest }: { anchor: THREE.Vector3 } & 
   );
 }
 
-function Stack({ cell, state }: { cell: Cell; state: GameState }) {
+/**
+ * Per-territory force layer. Renders, depending on zoom:
+ *   far  — a single coloured force DOT (controller colour, white ring) sized by
+ *          stack strength; no models, no count chip.
+ *   mid  — 3D models + a count chip on real stacks; the dot fades out.
+ *   near — full models + chips.
+ * Everything fades by opacity (no popping) and there is no per-frame setState.
+ */
+function Stack({ cell, state, zoom }: { cell: Cell; state: GameState; zoom: React.MutableRefObject<ZoomRef> }) {
   const ts = state.territories[cell.id];
   const units = ts?.units ?? [];
   const total = units.reduce((n, u) => n + u.count, 0);
@@ -341,26 +405,84 @@ function Stack({ cell, state }: { cell: Cell; state: GameState }) {
   const mobile = units.filter((u) => !STRUCTURES.has(u.type)).sort((a, b) => b.count - a.count).slice(0, 3);
   const shown = [...structures, ...mobile];
   const spread = 0.02;
-  const clusterScale = Math.min(1.8, 0.85 + Math.log2(total + 1) * 0.18);
+  const clusterScale = Math.min(2.2, 1.05 + Math.log2(total + 1) * 0.2);
+  // Force-dot radius scales mildly with stack strength.
+  const dotScale = Math.min(1.7, 0.7 + Math.log2(total + 1) * 0.16);
+
+  // Refs for per-frame visibility/opacity toggling of the 3D model group and
+  // the force dot — both driven by the zoom bucket, no React re-render.
+  const modelRef = useRef<THREE.Group>(null);
+  const dotRef = useRef<THREE.Group>(null);
+  const dotMat = useRef<THREE.MeshBasicMaterial>(null);
+  const ringMat = useRef<THREE.MeshBasicMaterial>(null);
+  useFrame(() => {
+    const d = zoom.current.detail; // 1 near → 0 far
+    const m = modelRef.current;
+    if (m) {
+      const show = d > 0.12;
+      m.visible = show;
+      if (show) {
+        const s = clusterScale * THREE.MathUtils.clamp((d - 0.12) / 0.4, 0.4, 1);
+        m.scale.setScalar(s);
+      }
+    }
+    const g = dotRef.current;
+    if (g) {
+      const o = THREE.MathUtils.clamp(1 - (d - 0.18) / 0.32, 0, 1); // visible far/mid
+      g.visible = o > 0.02;
+      if (dotMat.current) dotMat.current.opacity = o * 0.92;
+      if (ringMat.current) ringMat.current.opacity = o;
+    }
+  });
 
   return (
     <group position={cell.pos} quaternion={quat}>
-      <group scale={clusterScale}>
+      {/* Force dot (far/mid) — flat disc tangent to the surface. */}
+      {total > 0 && (
+        <group ref={dotRef} scale={dotScale} position={[0, 0.006, 0]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0.0001]}>
+            <circleGeometry args={[0.016, 24]} />
+            <meshBasicMaterial ref={ringMat} color="#ffffff" transparent opacity={1} depthWrite={false} />
+          </mesh>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.0002, 0]}>
+            <circleGeometry args={[0.0125, 24]} />
+            <meshBasicMaterial ref={dotMat} color={ownerColor} transparent opacity={0.92} depthWrite={false} />
+          </mesh>
+        </group>
+      )}
+
+      {/* base plate so the models pop against terrain, + the models. */}
+      <group ref={modelRef}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
+          <circleGeometry args={[0.03 + shown.length * 0.006, 28]} />
+          <meshBasicMaterial color="#0c1018" transparent opacity={0.42} depthWrite={false} />
+        </mesh>
         {shown.map((u, i) => (
           <group key={`${u.type}-${u.owner}`} position={[(i - (shown.length - 1) / 2) * spread, 0, 0]}>
             <UnitModel type={u.type} color={POWERS[u.owner]?.color ?? ownerColor} />
           </group>
         ))}
       </group>
+
       {cell.victoryCity && (
         <mesh position={[0, 0.052, 0]}>
           <octahedronGeometry args={[0.008]} />
-          <meshStandardMaterial color="#d9b24a" emissive="#7a5a10" />
+          <meshStandardMaterial color="#e6c25a" emissive="#7a5a10" roughness={0.5} />
         </mesh>
       )}
-      {total > 0 && (
-        <SurfaceHtml anchor={cell.pos} position={[0, 0.06, 0]} center distanceFactor={1.4} zIndexRange={[10, 0]}>
-          <div className="globe-chip">⚔{total}</div>
+      {total > 1 && (
+        <SurfaceHtml
+          anchor={cell.pos}
+          position={[0, 0.06, 0]}
+          center
+          distanceFactor={1.7}
+          zIndexRange={[10, 0]}
+          fade={() => THREE.MathUtils.clamp((zoom.current.detail - 0.14) / 0.3, 0, 1)}
+        >
+          <div className="globe-chip">
+            <span className="globe-chip-dot" style={{ background: ownerColor }} />
+            <span className="globe-chip-n">{total}</span>
+          </div>
         </SurfaceHtml>
       )}
     </group>
@@ -438,10 +560,17 @@ function Globe() {
   const texture = useLoader(THREE.TextureLoader, EARTH_SRC);
   const oceanGeo = useMemo(() => new THREE.SphereGeometry(R * 0.999, 96, 96), []);
   const terrainGeo = useMemo(() => geoSphere(R, 96), []);
+  const atmoGeo = useMemo(() => new THREE.SphereGeometry(R * 1.045, 48, 48), []);
   return (
     <>
-      <mesh geometry={oceanGeo}><meshStandardMaterial color="#13456e" roughness={0.9} metalness={0.05} /></mesh>
+      {/* Ocean: fully matte so there is NO harsh specular band on the sphere. */}
+      <mesh geometry={oceanGeo}><meshStandardMaterial color="#11476f" roughness={1} metalness={0} /></mesh>
       <mesh geometry={terrainGeo}><meshStandardMaterial map={texture} roughness={1} metalness={0} /></mesh>
+      {/* Atmosphere rim: a slightly larger back-side sphere glowing faint blue so
+          the globe edge feathers gently into space instead of a hard cut. */}
+      <mesh geometry={atmoGeo}>
+        <meshBasicMaterial color="#5b8fd6" transparent opacity={0.12} side={THREE.BackSide} depthWrite={false} blending={THREE.AdditiveBlending} />
+      </mesh>
     </>
   );
 }
@@ -473,16 +602,47 @@ function useZones(cells: Cell[], state: GameState): { kami: Set<string>; convoy:
   }, [cells, state]);
 }
 
+/**
+ * Drives the shared zoom state once per frame: updates `dist` always, and only
+ * flips `bucket` when crossing a threshold so dependent React state is rare.
+ */
+function ZoomDriver({ zoom, onBucket }: { zoom: React.MutableRefObject<ZoomRef>; onBucket: (b: ZoomBucket) => void }) {
+  useFrame(({ camera }) => {
+    const dist = camera.position.length();
+    zoom.current.dist = dist;
+    // detail: 1 at/below NEAR_MAX, 0 at/above FAR_MIN, linear between.
+    zoom.current.detail = THREE.MathUtils.clamp((FAR_MIN - dist) / (FAR_MIN - NEAR_MAX), 0, 1);
+    const b: ZoomBucket = dist < NEAR_MAX ? "near" : dist > FAR_MIN ? "far" : "mid";
+    if (b !== zoom.current.bucket) {
+      zoom.current.bucket = b;
+      onBucket(b);
+    }
+  });
+  return null;
+}
+
 function Scene(props: Props) {
   const { cells, byId } = useCells();
   const zones = useZones(cells, props.state);
+  const zoom = useRef<ZoomRef>({ dist: 2.5, bucket: "mid", detail: 0.5 });
+  const [, setBucket] = useState<ZoomBucket>("mid"); // coarse, rarely changes
+  const victoryCells = useMemo(() => cells.filter((c) => c.victoryCity), [cells]);
+  // Capitals always labelled; other victory cities fade in approaching mid zoom.
+  const capitals = useMemo(() => {
+    const caps = new Set<string>();
+    for (const p of Object.values(POWERS)) if (p.capital) caps.add(p.capital);
+    return caps;
+  }, []);
+
   return (
     <>
-      <ambientLight intensity={0.95} />
-      <directionalLight position={[5, 3, 5]} intensity={1.05} />
+      {/* Soft, warm key light + cool hemisphere fill — no hard specular band. */}
+      <hemisphereLight color="#bcd2f0" groundColor="#0a1322" intensity={0.7} />
+      <ambientLight intensity={0.5} />
+      <directionalLight position={[5, 3, 5]} intensity={0.55} color="#fff3e0" />
       <Stars radius={50} depth={20} count={1500} factor={2} fade />
 
-      <React.Suspense fallback={<mesh><sphereGeometry args={[R, 48, 48]} /><meshStandardMaterial color="#13456e" /></mesh>}>
+      <React.Suspense fallback={<mesh><sphereGeometry args={[R, 48, 48]} /><meshStandardMaterial color="#11476f" roughness={1} /></mesh>}>
         <Globe />
       </React.Suspense>
 
@@ -490,28 +650,44 @@ function Scene(props: Props) {
         <Province key={c.id} cell={c} {...props} />
       ))}
       {cells.map((c) => (
-        <Stack key={`s-${c.id}`} cell={c} state={props.state} />
+        <Stack key={`s-${c.id}`} cell={c} state={props.state} zoom={zoom} />
       ))}
-      {cells.filter((c) => c.victoryCity).map((c) => (
-        <SurfaceHtml key={`l-${c.id}`} anchor={c.pos} position={c.pos.clone().multiplyScalar(1.12).toArray()} center distanceFactor={2} zIndexRange={[10, 0]}>
-          <div className="globe-label">★ {c.display}</div>
-        </SurfaceHtml>
-      ))}
+      {victoryCells.map((c) => {
+        const cap = capitals.has(c.id);
+        return (
+          <SurfaceHtml
+            key={`l-${c.id}`}
+            anchor={c.pos}
+            position={c.pos.clone().multiplyScalar(1.12).toArray()}
+            center
+            distanceFactor={cap ? 2.1 : 1.9}
+            zIndexRange={[10, 0]}
+            // Capitals always visible; other cities fade in by mid zoom.
+            fade={cap ? undefined : () => THREE.MathUtils.clamp((zoom.current.detail - 0.12) / 0.4, 0, 1)}
+          >
+            <div className={`globe-label${cap ? " capital" : ""}`}>
+              <span className="globe-star">★</span>
+              <span className="globe-label-text">{c.display}</span>
+            </div>
+          </SurfaceHtml>
+        );
+      })}
 
       {/* Special-rule sea-zone markers: kamikaze defence & convoy raiding. */}
       {cells.filter((c) => zones.kami.has(c.id)).map((c) => (
-        <SurfaceHtml key={`kz-${c.id}`} anchor={c.pos} position={c.pos.toArray()} center distanceFactor={2.4} zIndexRange={[8, 0]}>
-          <div className="zone-badge kami" title="Kamikaze zone — Japanese island defence">🎌</div>
+        <SurfaceHtml key={`kz-${c.id}`} anchor={c.pos} position={c.pos.toArray()} center distanceFactor={2.2} zIndexRange={[8, 0]}>
+          <div className="zone-badge kami" title="Kamikaze zone — Japanese island defence">鬼</div>
         </SurfaceHtml>
       ))}
       {cells.filter((c) => zones.convoy.has(c.id)).map((c) => (
-        <SurfaceHtml key={`cz-${c.id}`} anchor={c.pos} position={c.pos.toArray()} center distanceFactor={2.4} zIndexRange={[8, 0]}>
-          <div className="zone-badge convoy" title="Convoy raid — enemy warships disrupting income here">⚠️</div>
+        <SurfaceHtml key={`cz-${c.id}`} anchor={c.pos} position={c.pos.toArray()} center distanceFactor={2.2} zIndexRange={[8, 0]}>
+          <div className="zone-badge convoy" title="Convoy raid — enemy warships disrupting income here">!</div>
         </SurfaceHtml>
       ))}
 
       <MovementLayer lastMove={props.lastMove} byId={byId} />
 
+      <ZoomDriver zoom={zoom} onBucket={setBucket} />
       <OrbitControls enablePan={false} rotateSpeed={0.45} minDistance={1.25} maxDistance={4} enableDamping dampingFactor={0.08} />
     </>
   );

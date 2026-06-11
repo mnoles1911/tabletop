@@ -18,7 +18,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:8787",
+      // Match only API routes (`/api/...`), not the client module `/api.ts`.
+      "^/api/": "http://localhost:8787",
     },
   },
   build: {
