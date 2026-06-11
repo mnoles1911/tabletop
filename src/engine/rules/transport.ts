@@ -1,6 +1,7 @@
 import type { GameState, PowerId, UnitTypeId } from "../types.js";
 import { UNITS } from "../data/units.js";
-import { areAllied, areEnemies } from "../data/powers.js";
+import { areAllied } from "../data/powers.js";
+import { areEnemies } from "./politics.js";
 import { isSea, TERRITORY_INDEX } from "../data/territories.js";
 import { neighbours, addUnits, removeUnits } from "./setup.js";
 
@@ -70,9 +71,9 @@ export function checkTransport(state: GameState, owner: PowerId, req: TransportR
   }
 
   const dest = state.territories[to];
-  const hostile = dest.units.some((u) => areEnemies(u.owner, owner) && u.count > 0);
+  const hostile = dest.units.some((u) => areEnemies(state, u.owner, owner) && u.count > 0);
   const destController = dest.controller;
-  if (!hostile && destController && areEnemies(destController, owner)) {
+  if (!hostile && destController && areEnemies(state, destController, owner)) {
     // Empty but enemy-owned land — landing there is still an (unopposed) assault.
     return { ok: true, amphibious: state.phase === "combat_move" };
   }

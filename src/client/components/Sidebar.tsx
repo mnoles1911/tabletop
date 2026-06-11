@@ -310,7 +310,7 @@ function SbrSection({ state, active, from, act, busy }: { state: GameState; acti
   if (bombers === 0) return null;
   const targets = TERRITORIES.filter((t) => {
     const ts = state.territories[t.id];
-    if (!ts.controller || !areEnemies(ts.controller, active)) return false;
+    if (!ts.controller || !areEnemies(state, ts.controller, active)) return false;
     if (!ts.units.some((u) => hasFlag(u.type, "factory"))) return false;
     return checkMove(state, active, { from, to: t.id, type: "strategic_bomber", count: bombers }).ok;
   });

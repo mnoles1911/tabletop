@@ -1,6 +1,7 @@
 import type { GameState, PowerId, UnitTypeId } from "../types.js";
 import { UNITS, hasFlag } from "../data/units.js";
-import { areAllied, areEnemies } from "../data/powers.js";
+import { areAllied, POWERS } from "../data/powers.js";
+import { areEnemies } from "./politics.js";
 import { TERRITORY_INDEX, isSea, canalGates } from "../data/territories.js";
 import { neighbours, addUnits, removeUnits } from "./setup.js";
 import { captureTerritory, activateNeutralBloc } from "./control.js";
@@ -59,7 +60,7 @@ function passableIntermediate(
   if (d.domain === "sea" && !isSea(node)) return false;
   // Cannot pass through a territory containing enemy units (zone of control).
   const ts = state.territories[node];
-  return !ts.units.some((u) => areEnemies(u.owner, owner) && u.count > 0);
+  return !ts.units.some((u) => areEnemies(state, u.owner, owner) && u.count > 0);
 }
 
 /** Is `to` a legal *destination* node for this unit's domain? */
@@ -136,9 +137,24 @@ export function checkMove(state: GameState, owner: PowerId, req: MoveRequest): M
     return { ok: false, reason: `Out of range (needs ${dist}, has ${allowance}).` };
   }
 
-  const destEnemies = state.territories[to].units.some((u) => areEnemies(u.owner, owner) && u.count > 0);
+  const destEnemies = state.territories[to].units.some((u) => areEnemies(state, u.owner, owner) && u.count > 0);
   if (destEnemies && state.phase === "noncombat_move") {
     return { ok: false, reason: "Cannot move into enemy territory during non-combat movement." };
+  }
+
+  // While at peace with a power you may not enter its territory — declare war
+  // during your politics phase first. (Unowned neutral countries are handled
+  // by the neutral-bloc rules; sea zones are open water and never controlled.)
+  if (!isSea(to)) {
+    const destController = state.territories[to].controller;
+    if (
+      destController &&
+      destController !== owner &&
+      !areAllied(destController, owner) &&
+      !areEnemies(state, destController, owner)
+    ) {
+      return { ok: false, reason: `You are not at war with ${POWERS[destController].display} — declare war first.` };
+    }
   }
 
   return { ok: true, initiatesCombat: destEnemies && state.phase === "combat_move" };
@@ -160,7 +176,7 @@ export function executeMove(state: GameState, owner: PowerId, req: MoveRequest):
   removeUnits(src, req.type, req.count, owner);
   addUnits(dst, req.type, req.count, owner);
 
-  const destEnemies = dst.units.some((u) => areEnemies(u.owner, owner) && u.count > 0);
+  const destEnemies = dst.units.some((u) => areEnemies(state, u.owner, owner) && u.count > 0);
   check.initiatesCombat = state.phase === "combat_move" && destEnemies;
 
   // Moving into enemy territory queues (or joins) a battle for the combat phase.
@@ -174,7 +190,7 @@ export function executeMove(state: GameState, owner: PowerId, req: MoveRequest):
     // (or an ally's) takes control: capturing empty enemy land, liberating an
     // ally's, or annexing a neutral.
     const controller = dst.controller;
-    const hasEnemies = dst.units.some((u) => areEnemies(u.owner, owner));
+    const hasEnemies = dst.units.some((u) => areEnemies(state, u.owner, owner));
     if (!hasEnemies && (!controller || (controller !== owner && !areAllied(controller, owner)))) {
       captureTerritory(state, dst, owner, []);
     }

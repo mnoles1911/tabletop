@@ -1,6 +1,7 @@
 import type { GameState, PowerId, UnitTypeId } from "../types.js";
 import { UNITS, PURCHASABLE, hasFlag } from "../data/units.js";
-import { POWERS, areEnemies } from "../data/powers.js";
+import { POWERS } from "../data/powers.js";
+import { areEnemies, declareWar } from "./politics.js";
 import { TERRITORY_INDEX } from "../data/territories.js";
 import { executeMove, checkMove } from "./movement.js";
 import { executeTransport } from "./transport.js";
@@ -17,6 +18,7 @@ import { addUnits, removeUnits } from "./setup.js";
 // ============================================================================
 
 export type Action =
+  | { kind: "declare_war"; target: PowerId }
   | { kind: "buy"; units: { type: UnitTypeId; count: number }[] }
   | { kind: "cancel_purchases" }
   | { kind: "move"; from: string; to: string; unit: UnitTypeId; count: number }
@@ -48,6 +50,15 @@ export function applyAction(state: GameState, action: Action, actor: PowerId): A
   if (turnError && action.kind !== "advance_phase") return { ok: false, error: turnError };
 
   switch (action.kind) {
+    case "declare_war": {
+      if (state.phase !== "politics") return { ok: false, error: "Declare war during the politics phase." };
+      const r = declareWar(state, actor, action.target);
+      if (!r.ok) return { ok: false, error: r.reason };
+      const names = r.nowAtWarWith.map((p) => POWERS[p].display).join(", ");
+      log(state, `${POWERS[actor].display} DECLARES WAR on ${names}!`);
+      return { ok: true };
+    }
+
     case "buy": {
       if (state.phase !== "purchase") return { ok: false, error: "You can only buy during the purchase phase." };
       let cost = 0;
@@ -110,7 +121,7 @@ export function applyAction(state: GameState, action: Action, actor: PowerId): A
       if (state.phase !== "combat_move") return { ok: false, error: "Launch raids during combat movement." };
       const target = state.territories[action.to];
       if (!target) return { ok: false, error: "Unknown target." };
-      if (!target.controller || !areEnemies(target.controller, actor)) {
+      if (!target.controller || !areEnemies(state, target.controller, actor)) {
         return { ok: false, error: "You can only bomb enemy territory." };
       }
       if (!target.units.some((u) => hasFlag(u.type, "factory"))) {
@@ -156,7 +167,7 @@ export function applyAction(state: GameState, action: Action, actor: PowerId): A
     }
 
     case "research": {
-      if (state.phase !== "purchase") return { ok: false, error: "Research during the purchase phase." };
+      if (state.phase !== "tech_research") return { ok: false, error: "Research during the research & development phase." };
       const r = buyResearch(state, actor, action.dice);
       if ("error" in r) return { ok: false, error: r.error };
       const got = r.breakthroughs.length

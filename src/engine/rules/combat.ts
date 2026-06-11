@@ -1,6 +1,7 @@
 import type { GameState, PendingBattle, PowerId, TerritoryState, UnitStack, UnitTypeId } from "../types.js";
 import { UNITS, hasFlag } from "../data/units.js";
-import { areAllied, areEnemies, POWERS } from "../data/powers.js";
+import { areAllied, POWERS } from "../data/powers.js";
+import { areEnemies } from "./politics.js";
 import { isSea } from "../data/territories.js";
 import { rollDie, resolveSalvo } from "./rng.js";
 import { neighbours, addUnits, removeUnits } from "./setup.js";
@@ -72,7 +73,7 @@ function expand(stacks: UnitStack[]): CombatUnit[] {
 function readSides(state: GameState, territory: string, attacker: PowerId) {
   const ts = state.territories[territory];
   const attackers = expand(ts.units.filter((u) => u.owner === attacker));
-  const defenders = expand(ts.units.filter((u) => areEnemies(u.owner, attacker)));
+  const defenders = expand(ts.units.filter((u) => areEnemies(state, u.owner, attacker)));
   return { ts, attackers, defenders };
 }
 
@@ -148,7 +149,7 @@ function scrambleDefenders(state: GameState, battle: PendingBattle, notes: strin
     if (isSea(land)) continue;
     const lt = state.territories[land];
     const c = lt.controller;
-    if (!c || !areEnemies(c, attacker)) continue;
+    if (!c || !areEnemies(state, c, attacker)) continue;
     if (!lt.units.some((u) => u.type === "air_base" && (u.owner === c || areAllied(u.owner, c)))) continue;
     let budget = 3;
     for (const type of ["fighter", "tactical_bomber"] as UnitTypeId[]) {
@@ -172,7 +173,7 @@ function returnScrambled(state: GameState, battle: PendingBattle, notes: string[
   for (const s of battle.scrambled) {
     const here = sz.units.find((u) => u.type === s.type && u.owner === s.owner)?.count ?? 0;
     const home = state.territories[s.from];
-    const homeFriendly = !!home?.controller && !areEnemies(home.controller, s.owner);
+    const homeFriendly = !!home?.controller && !areEnemies(state, home.controller, s.owner);
     const n = Math.min(here, s.count);
     if (n > 0 && homeFriendly) {
       removeUnits(sz, s.type, n, s.owner);
@@ -185,7 +186,7 @@ function returnScrambled(state: GameState, battle: PendingBattle, notes: string[
 
 /** Japanese kamikaze strike on an attacking fleet near a held Pacific island. */
 function kamikazeHits(state: GameState, territory: string, attacker: PowerId): { hits: number; note: string } | null {
-  if ((state.kamikaze ?? 0) <= 0 || !areEnemies("Japan", attacker)) return null;
+  if ((state.kamikaze ?? 0) <= 0 || !areEnemies(state, "Japan", attacker)) return null;
   const near = neighbours(territory).some(
     (n) => KAMIKAZE_ISLANDS.has(n) && state.territories[n]?.controller === "Japan",
   );
@@ -530,7 +531,7 @@ export function retreatBattle(state: GameState, territory: string): { ok: boolea
 
   const friendly = (id: string): boolean => {
     const c = state.territories[id].controller;
-    const noEnemies = !state.territories[id].units.some((u) => areEnemies(u.owner, attacker));
+    const noEnemies = !state.territories[id].units.some((u) => areEnemies(state, u.owner, attacker));
     return noEnemies && (!c || areAllied(c, attacker));
   };
   const landDest = neighbours(territory).find((n) => !isSea(n) && friendly(n));

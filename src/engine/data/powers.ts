@@ -109,8 +109,15 @@ export const TURN_ORDER: PowerId[] = Object.values(POWERS)
 
 export const powerDef = (id: PowerId): PowerDef => POWERS[id];
 
-export const areAllied = (a: PowerId, b: PowerId): boolean =>
+// FUTURE: split the United Kingdom into UK-Europe / UK-Pacific economies as in
+// the printed game (and TripleA's combinedTurns). One economy for now.
+
+/** Same alliance — friendly regardless of the war/neutral matrix. */
+export const sameAlliance = (a: PowerId, b: PowerId): boolean =>
   POWERS[a].alliance === POWERS[b].alliance;
 
-export const areEnemies = (a: PowerId, b: PowerId): boolean =>
-  POWERS[a].alliance !== POWERS[b].alliance;
+export const areAllied = sameAlliance;
+
+// NOTE: "enemies" is no longer an alliance question — it depends on the
+// pairwise war matrix in GameState. Use `areEnemies(state, a, b)` from
+// rules/politics.ts.

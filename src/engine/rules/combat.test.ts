@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createInitialState, neighbours } from "./setup.js";
+import { setWar } from "./politics.js";
 import { resolveBattle } from "./combat.js";
 import { applyAction } from "./actions.js";
 import { movementAllowance } from "./movement.js";
@@ -34,15 +35,19 @@ test("buying more than the treasury is rejected", () => {
 
 test("phase advances through the full turn sequence", () => {
   const s = createInitialState(1);
-  const seq = ["combat_move", "combat", "noncombat_move", "mobilize", "collect_income"];
+  // Germany opens in politics (it can declare war). With research off and no
+  // battles queued, tech_research and combat are skipped automatically.
+  assert.equal(s.phase, "politics");
+  const seq = ["purchase", "combat_move", "noncombat_move", "mobilize", "collect_income"];
   for (const expected of seq) {
     applyAction(s, { kind: "advance_phase" }, "Germany");
     assert.equal(s.phase, expected);
   }
-  // One more advance ends Germany's turn and hands off to the Soviet Union.
+  // One more advance ends Germany's turn and hands off to the Soviet Union,
+  // which also has a declaration available (Japan), so it opens in politics.
   applyAction(s, { kind: "advance_phase" }, "Germany");
   assert.equal(s.activePower, "SovietUnion");
-  assert.equal(s.phase, "purchase");
+  assert.equal(s.phase, "politics");
 });
 
 test("amphibious assault captures a coastal territory", () => {
@@ -113,6 +118,7 @@ test("defenders scramble aircraft from an adjacent air base into a sea battle", 
   const s = createInitialState(9);
   s.activePower = "Japan";
   s.phase = "combat";
+  setWar(s, "Japan", "UnitedKingdom");
   // The UK home island has an air base + fighters and borders sea zone 110.
   assert.ok(s.territories["united_kingdom"].units.some((u) => u.type === "air_base"));
   s.territories["sz_110"].units.push({ type: "battleship", owner: "Japan", count: 1 });
@@ -126,6 +132,7 @@ test("kamikaze tokens strike an enemy fleet next to a Japanese island", () => {
   const s = createInitialState(2);
   s.activePower = "UnitedStates";
   s.phase = "combat";
+  setWar(s, "UnitedStates", "Japan");
   assert.equal(s.kamikaze, 6);
   const sz = neighbours("okinawa").find((n) => isSea(n))!;
   s.territories[sz].units = [{ type: "cruiser", owner: "UnitedStates", count: 2 }];
@@ -149,6 +156,7 @@ test("strategic bombing damages a factory and returns bombers", () => {
 
 test("research costs 5 IPC per die and is gated by phase", () => {
   const s = createInitialState(42, { ...DEFAULT_OPTIONS, research: true });
+  s.phase = "tech_research";
   const before = s.treasury["Germany"];
   assert.equal(applyAction(s, { kind: "research", dice: 2 }, "Germany").ok, true);
   assert.equal(s.treasury["Germany"], before - 10);
@@ -167,6 +175,7 @@ test("moving a land unit into undefended enemy land captures it", () => {
   const s = createInitialState(42);
   s.activePower = "Germany";
   s.phase = "combat_move";
+  setWar(s, "Germany", "SovietUnion"); // at peace, the border is closed
   // Norway is German already; use an undefended neutral instead: Spain (no owner).
   // Put a German infantry in adjacent France (German? no, France is French). Use
   // poland (German) -> baltic_states (Soviet) only if undefended. Empty a target:

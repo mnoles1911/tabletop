@@ -318,7 +318,7 @@ function TerrHud({ state, id }: { state: GameView["state"]; id: string }) {
   const warOwners = new Set((ts?.units ?? []).filter((u) => ["destroyer", "cruiser", "battleship", "aircraft_carrier", "submarine"].includes(u.type)).map((u) => u.owner));
   const convoyZone = isSea(id) && warOwners.size > 0 && neighbours(id).some((n) => {
     const lt = state.territories[n]; const d = TERRITORY_INDEX[n];
-    return !isSea(n) && lt?.controller && d && d.ipc > 0 && [...warOwners].some((o) => areEnemies(o, lt.controller!));
+    return !isSea(n) && lt?.controller && d && d.ipc > 0 && [...warOwners].some((o) => areEnemies(state, o, lt.controller!));
   });
   const groups = new Map<string, number>();
   for (const u of ts?.units ?? []) {

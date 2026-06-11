@@ -1,5 +1,6 @@
 import type { Alliance, GameState, PowerId, TerritoryState } from "../types.js";
-import { POWERS, areEnemies } from "../data/powers.js";
+import { POWERS } from "../data/powers.js";
+import { areEnemies } from "./politics.js";
 import { TERRITORIES } from "../data/territories.js";
 
 // ============================================================================
@@ -20,7 +21,7 @@ export function captureTerritory(
   notes.push(`${POWERS[conqueror].display} takes control of ${ts.id}.`);
 
   for (const p of Object.values(POWERS)) {
-    if (p.capital === ts.id && previous && areEnemies(conqueror, previous)) {
+    if (p.capital === ts.id && previous && areEnemies(state, conqueror, previous)) {
       const looted = state.treasury[previous] ?? 0;
       if (looted > 0) {
         state.treasury[conqueror] += looted;
@@ -65,13 +66,18 @@ export function activateNeutralBloc(
   if (done.includes(bloc)) {
     // Bloc already swung; just report the relationship for the entered terr.
     const ctrl = state.territories[enteredTerritory].controller;
-    return ctrl && !areEnemies(ctrl, aggressor) ? "friendly" : "hostile";
+    return ctrl && !areEnemies(state, ctrl, aggressor) ? "friendly" : "hostile";
   }
 
   const side: Alliance = bloc === "axis" ? "Axis" : bloc === "allies" ? "Allies" : opposite(POWERS[aggressor].alliance);
   const rep = representative(state, side);
+  const hostileEntry = POWERS[rep].alliance !== POWERS[aggressor].alliance;
   for (const def of TERRITORIES) {
     if (def.neutral !== bloc) continue;
+    // A hostile invasion fights the *invaded* garrison as Neutral troops (the
+    // aggressor need not be at war with the bloc's adopting power); only the
+    // REST of the bloc swings to that side.
+    if (hostileEntry && def.id === enteredTerritory) continue;
     const ts = state.territories[def.id];
     if (ts.controller) continue; // already a real combatant's
     // Convert the neutral garrison to the joining side and hand over control.
@@ -88,5 +94,5 @@ export function activateNeutralBloc(
     ts.controller = rep;
   }
   done.push(bloc);
-  return POWERS[rep].alliance === POWERS[aggressor].alliance ? "friendly" : "hostile";
+  return hostileEntry ? "hostile" : "friendly";
 }

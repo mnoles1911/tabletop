@@ -10,6 +10,7 @@ import { DEFAULT_OPTIONS } from "../types.js";
 import { TERRITORIES, TERRITORY_INDEX } from "../data/territories.js";
 import { STARTING_FORCES } from "../data/setup.generated.js";
 import { POWERS, TURN_ORDER } from "../data/powers.js";
+import { initialRelationships } from "./politics.js";
 
 // ============================================================================
 // Initial game setup. Builds the opening GameState: controllers, treasuries,
@@ -65,13 +66,19 @@ export function createInitialState(
       .map((p) => [p.id, p.startingIPC]),
   ) as Record<PowerId, number>;
 
+  const powerControl = Object.fromEntries(
+    Object.values(POWERS).map((p) => [p.id, "human"]),
+  ) as GameState["powerControl"];
+
   return {
-    schema: 1,
+    schema: 2,
     version: 1,
     options,
     round: 1,
     activePower: TURN_ORDER[0],
-    phase: "purchase",
+    // Germany always has declarations available at setup, so the opening
+    // phase is politics (the skip pass in phases.ts handles later turns).
+    phase: "politics",
     treasury,
     territories,
     purchases: [],
@@ -81,9 +88,11 @@ export function createInitialState(
     tech: {},
     kamikaze: 6, // Japan's Pacific-island kamikaze tokens
     neutralsActivated: [],
+    relationships: initialRelationships(),
+    powerControl,
     rng: { seed, counter: 0 },
     log: [
-      { round: 1, power: TURN_ORDER[0], phase: "purchase", text: "Game begins — Germany's purchase phase." },
+      { round: 1, power: TURN_ORDER[0], phase: "politics", text: "Game begins — Germany's politics phase." },
     ],
     eliminated: [],
   };

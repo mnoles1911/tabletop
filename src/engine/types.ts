@@ -143,12 +143,23 @@ export interface TerritoryState {
 // --- Game state ----------------------------------------------------------
 
 export type Phase =
+  | "politics" // declare war / political actions (auto-skipped when none available)
+  | "tech_research" // roll for technology (only when the research option is on)
   | "purchase" // buy units & repair
   | "combat_move" // move units into hostile territory
   | "combat" // resolve battles
   | "noncombat_move" // reposition, land aircraft
   | "mobilize" // place purchased units at factories
   | "collect_income"; // bank IPCs, then pass to next power
+
+/** Diplomatic relation between two powers. Same-alliance pairs are always friendly. */
+export type Relation = "war" | "neutral";
+
+/** Symmetric pairwise relations (both directions stored for O(1) lookups). */
+export type Relationships = Partial<Record<PowerId, Partial<Record<PowerId, Relation>>>>;
+
+/** Who plays a power: a human at the controls, or the built-in AI. */
+export type ControlMode = "human" | "ai";
 
 export interface PendingPurchase {
   type: UnitTypeId;
@@ -211,7 +222,7 @@ export interface CombatState {
 }
 
 export interface GameState {
-  schema: 1;
+  schema: 2;
   /** Monotonic version; the server rejects stale-version actions. */
   version: number;
   /** House rules selected for this game. */
@@ -241,6 +252,10 @@ export interface GameState {
   kamikaze?: number;
   /** Neutral blocs that have already been swung into the war. */
   neutralsActivated?: ("true" | "axis" | "allies")[];
+  /** Pairwise war/neutral matrix (G40 politics). Same-alliance pairs are friendly. */
+  relationships: Relationships;
+  /** Human or AI control per power, resolved when the game starts. */
+  powerControl: Record<PowerId, ControlMode>;
   winner?: Alliance;
 }
 
