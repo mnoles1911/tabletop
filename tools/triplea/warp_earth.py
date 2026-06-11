@@ -39,8 +39,37 @@ Pipeline
 4. Write /tmp/warp_check.png (after) and /tmp/warp_check_before.png with the
    province rings drawn in red using the renderer's exact UV mapping.
 
+Compositing stage (added) — make coastlines EXACTLY the board's coastlines
+------------------------------------------------------------------------
+The warp above brings real coastlines *close* to the province rings, but a hand
+drawn board can never coincide with real satellite coastlines. So after warping
+we re-cut the texture so the land/sea boundary in the pixels IS the board's:
+
+5. Rasterize a LAND MASK at OUT res (supersampled SS=2x then box-downsampled for
+   antialiased edges) by filling the polygon rings of every LAND territory.
+   Territory terrain ("land"/"sea") comes from territories.ts; the rings come
+   from borders.ts keyed by territory id. Lon wrap (rings up to ~+250 deg in the
+   Pacific) is handled by drawing each ring at its base lon and at +-360 shifts
+   so seam-crossing polygons fill correctly. Sea zones are NOT filled, so inland
+   seas enclosed by land territories (Caspian, Black Sea, etc.) correctly read as
+   water because no land ring covers them.
+
+6. Composite:
+   - INSIDE the land mask: the warped satellite sample, but where that sample is
+     obviously water (b>r and b>g, or low luminance) it is replaced by a heavily
+     blurred "land color" field (built from only the non-water warped pixels) so
+     ocean never shows inside a province whose board shape is bigger than the
+     real land.
+   - OUTSIDE the land mask: ocean. Real water is kept; real land poking past the
+     board coastline is overwritten with deep ocean blue (#13456e) blended with
+     the local satellite water tone so it is not flat.
+   - The supersampled mask gives a soft 1-2px antialiased coastline.
+
+7. Regenerate earth_day.jpg, plus /tmp/warp_check2.png (composited + red rings)
+   and crops /tmp/fit_europe.png, /tmp/fit_pacific.png, /tmp/fit_americas.png.
+
 Re-runnable: the original texture is preserved as earth_day_src.jpg on first run
-and always sampled from that copy.
+and always sampled from that copy. A single run does warp + composite.
 
 Run:  python3 tools/triplea/warp_earth.py
 """
@@ -50,14 +79,19 @@ import math
 import json
 import shutil
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 CENTERS = os.path.join(HERE, "centers.txt")
 BORDERS_TS = os.path.join(ROOT, "src", "engine", "data", "borders.ts")
+TERRITORIES_TS = os.path.join(ROOT, "src", "engine", "data", "territories.ts")
 EARTH_OUT = os.path.join(ROOT, "src", "client", "public", "earth_day.jpg")
 EARTH_SRC = os.path.join(HERE, "earth_day_src.jpg")
+
+# Compositing stage constants.
+SS = 2                             # supersample factor for the land mask
+DEEP_OCEAN = np.array([0x13, 0x45, 0x6e], np.float32)  # #13456e deep ocean blue
 
 # Board / linear-fit constants (must match generate.py).
 W, H = 7705, 3213
@@ -494,8 +528,10 @@ def main():
                      np.clip((lat_lin - (lat_bot - EDGE_BLEND_DEG)) / EDGE_BLEND_DEG, 0, 1),
                      wfrac)
     wfrac = wfrac[..., None]
-    out = warped * wfrac + identity * (1 - wfrac)
-    out = np.clip(out, 0, 255).astype(np.uint8)
+    warped_full = warped * wfrac + identity * (1 - wfrac)
+
+    # --- compositing stage: cut land/sea to the board's exact coastlines ---
+    out = composite(warped_full)
 
     Image.fromarray(out, "RGB").save(EARTH_OUT, quality=85)
     print(f"\nWrote {EARTH_OUT} ({OUT_W}x{OUT_H}, q85)")
@@ -519,6 +555,19 @@ def main():
     save_crop(after_img, "NorthAmerica", 0, 150, 700, 650)
     print("Wrote /tmp crops: europe/japanpacific/northamerica")
 
+    # --- compositing-stage verification: rings on the COMPOSITED texture ---
+    comp_img = Image.fromarray(out, "RGB")
+    draw_rings(comp_img, rings)
+    comp_img.save("/tmp/warp_check2.png")
+    print("Wrote /tmp/warp_check2.png (composited + rings)")
+    # u=(lon+180)/360*2048: lon -10 -> ~967, lon 50 -> ~1308 (Europe/Caspian)
+    save_named_crop(comp_img, "europe", 960, 250, 1340, 620)
+    # Pacific / Japan / SE Asia: lon 95..175 -> u ~1564..2018
+    save_named_crop(comp_img, "pacific", 1560, 250, 2040, 760)
+    # Americas: lon -125..-55 -> u ~312..711
+    save_named_crop(comp_img, "americas", 130, 150, 720, 880)
+    print("Wrote /tmp fit crops: europe/pacific/americas")
+
 
 def sample_to_identity(src, SW, SH):
     """Resample the ORIGINAL source to OUT_W x OUT_H with identity lon/lat map
@@ -531,6 +580,145 @@ def sample_to_identity(src, SW, SH):
     u0 = np.floor(su).astype(int) % SW
     v0 = np.clip(np.floor(sv).astype(int), 0, SH - 1)
     return src[v0, u0]
+
+
+def parse_terrain():
+    """territory id -> terrain ('land' | 'sea') from territories.ts."""
+    txt = open(TERRITORIES_TS).read()
+    terr = {}
+    for m in re.finditer(r'id:\s*"([a-z0-9_]+)".*?terrain:\s*"([a-z]+)"', txt):
+        terr[m.group(1)] = m.group(2)
+    return terr
+
+
+def parse_borders_by_id():
+    """Parse borders.ts -> {id: [ring,...]} where ring is a list of (lon,lat)."""
+    txt = open(BORDERS_TS).read()
+    start = txt.index("{", txt.index("BORDERS"))
+    body = txt[start:]
+    out = {}
+    for m in re.finditer(r'"([a-z0-9_]+)":\s*(\[\[.*?\]\]),?\n', body):
+        tid = m.group(1)
+        try:
+            data = json.loads(m.group(2))
+        except Exception:
+            continue
+        rings = []
+        for ring in data:
+            pts = [(p[0], p[1]) for p in ring if len(p) == 2]
+            if len(pts) >= 3:
+                rings.append(pts)
+        if rings:
+            out[tid] = rings
+    return out
+
+
+def build_land_mask():
+    """Rasterize an antialiased land mask (float32 in [0,1]) at OUT_W x OUT_H.
+
+    Fill every LAND territory's rings using the renderer's exact UV mapping
+    (x=(lon+180)/360*W, y=(90-lat)/180*H). Supersample by SS then box-downsample.
+    Lon wrap: each ring is drawn at lon and lon+-360 so polygons that straddle
+    the +-180 seam (Pacific rings go up to ~+250 deg) fill on both sides.
+    """
+    terr = parse_terrain()
+    borders = parse_borders_by_id()
+    MW, MH = OUT_W * SS, OUT_H * SS
+    mask = Image.new("L", (MW, MH), 0)
+    draw = ImageDraw.Draw(mask)
+    n_land = 0
+    for tid, rings in borders.items():
+        if terr.get(tid) != "land":
+            continue
+        n_land += 1
+        for ring in rings:
+            for shift in (-360.0, 0.0, 360.0):
+                poly = []
+                for lon, lat in ring:
+                    x = (lon + shift + 180.0) / 360.0 * MW
+                    y = (90.0 - lat) / 180.0 * MH
+                    poly.append((x, y))
+                draw.polygon(poly, fill=255)
+    arr = np.asarray(mask, np.float32) / 255.0
+    # Box-downsample SSxSS -> antialiased edges.
+    arr = arr.reshape(OUT_H, SS, OUT_W, SS).mean(axis=(1, 3))
+    print(f"Land mask: filled {n_land} land territories  "
+          f"(land fraction {arr.mean():.3f})")
+    return arr
+
+
+def composite(warped):
+    """Re-cut `warped` (OUT_H x OUT_W x3 float32) so the land/sea boundary is the
+    board's land mask. Returns uint8 RGB."""
+    mask = build_land_mask()                      # (H,W) float in [0,1]
+    r, g, b = warped[..., 0], warped[..., 1], warped[..., 2]
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    # "Water-looking" warped pixels: bluish or dark.
+    is_water = ((b > r) & (b > g)) | (lum < 55.0)
+
+    # --- land-color fill: heavily blurred field from non-water warped pixels ---
+    land_px = (~is_water).astype(np.float32)[..., None]
+    num = warped * land_px
+    den = land_px
+    # Big gaussian-ish blur on numerator and denominator, then divide -> at each
+    # pixel, the average colour of nearby genuine-land pixels. Where almost no
+    # land lies within reach (den tiny), fall back to the global mean land color
+    # so big interior gaps (e.g. a black warp patch) never collapse to black.
+    num_b = _big_blur(num)
+    den_b = _big_blur(den)
+    glob_land = num.reshape(-1, 3).sum(0) / max(den.sum(), 1.0)
+    t = np.clip(den_b / 0.04, 0.0, 1.0)          # confidence in the local blur
+    land_color = (num_b / np.maximum(den_b, 1e-4)) * t \
+        + glob_land[None, None, :] * (1.0 - t)
+
+    # --- ocean fill: deep blue blended with local satellite water tone ---
+    water_px = is_water.astype(np.float32)[..., None]
+    wnum = _big_blur(warped * water_px)
+    wden = _big_blur(water_px)
+    glob_water = (warped * water_px).reshape(-1, 3).sum(0) / max(water_px.sum(), 1.0)
+    tw = np.clip(wden / 0.04, 0.0, 1.0)
+    local_water = (wnum / np.maximum(wden, 1e-4)) * tw \
+        + glob_water[None, None, :] * (1.0 - tw)
+    ocean = 0.62 * DEEP_OCEAN[None, None, :] + 0.38 * local_water
+
+    # Inside land: warped where it's real land, else blurred land color.
+    inside = np.where(is_water[..., None], land_color, warped)
+    # Outside land: warped where it's real water, else deep ocean.
+    outside = np.where(is_water[..., None], warped, ocean)
+
+    m = mask[..., None]
+    out = inside * m + outside * (1.0 - m)
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def _big_blur(img, passes=4, radius=28):
+    """Cheap large-radius blur: repeated box blurs via cumulative sums.
+
+    img: (H,W,C) float32. Returns same shape. With passes=4, radius=28 the
+    effective spread is ~100px, enough to bridge large interior warp gaps.
+    Horizontal wraps (cyclic texture); vertical is edge-extended."""
+    out = img
+    for _ in range(passes):
+        out = _box_blur(out, radius)
+    return out
+
+
+def _box_blur(img, r):
+    H_, W_, C = img.shape
+    # Horizontal (with lon wrap, since the texture is cyclic in x).
+    pad = np.concatenate([img[:, -r:], img, img[:, :r]], axis=1)
+    cs = np.cumsum(pad, axis=1)
+    cs = np.concatenate([np.zeros((H_, 1, C), img.dtype), cs], axis=1)
+    horiz = (cs[:, 2 * r + 1:] - cs[:, :-(2 * r + 1)]) / (2 * r + 1)
+    horiz = horiz[:, :W_]
+    # Vertical (edge-extended).
+    padv = np.concatenate(
+        [np.repeat(horiz[:1], r, axis=0), horiz, np.repeat(horiz[-1:], r, axis=0)],
+        axis=0)
+    cs = np.cumsum(padv, axis=0)
+    cs = np.concatenate([np.zeros((1, W_, C), img.dtype), cs], axis=0)
+    vert = (cs[2 * r + 1:] - cs[:-(2 * r + 1)]) / (2 * r + 1)
+    return vert[:H_]
 
 
 def parse_borders():
@@ -581,6 +769,14 @@ def save_crop(img, label, x0, y0, x1, y1, target_w=800):
     scale = target_w / w
     crop = crop.resize((target_w, max(1, int(h * scale))))
     crop.save(f"/tmp/warp_{label.lower()}.png")
+
+
+def save_named_crop(img, label, x0, y0, x1, y1, target_w=800):
+    crop = img.crop((x0, y0, x1, y1))
+    w, h = crop.size
+    scale = target_w / w
+    crop = crop.resize((target_w, max(1, int(h * scale))))
+    crop.save(f"/tmp/fit_{label}.png")
 
 
 if __name__ == "__main__":
