@@ -27,7 +27,9 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  async createGame(options: Partial<GameOptions>): Promise<string> {
+  // `humans` is accepted for signature-compatibility with the local backend but
+  // ignored on the cloud path — seats are claimed in the lobby instead.
+  async createGame(options: Partial<GameOptions>, _humans?: PowerId[]): Promise<string> {
     const res = await fetch("/api/games", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
