@@ -54,6 +54,10 @@ export function applyAction(state: GameState, action: Action, actor: PowerId): A
       for (const item of action.units) {
         if (!PURCHASABLE.includes(item.type)) return { ok: false, error: `Cannot buy ${item.type}.` };
         if (item.count < 0) return { ok: false, error: "Invalid quantity." };
+        // China's special restriction: it may only ever build infantry.
+        if (actor === "China" && item.count > 0 && item.type !== "infantry") {
+          return { ok: false, error: "China may only build infantry." };
+        }
         cost += UNITS[item.type].cost * item.count;
       }
       if (cost > state.treasury[actor]) {

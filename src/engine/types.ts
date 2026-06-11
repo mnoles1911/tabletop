@@ -20,9 +20,10 @@ export type PowerId =
   | "UnitedKingdom"
   | "Italy"
   | "Australia" // ANZAC
-  | "France";
+  | "France"
+  | "Neutral"; // owns neutral-country garrisons; never takes a turn
 
-export type Alliance = "Axis" | "Allies";
+export type Alliance = "Axis" | "Allies" | "Neutral";
 
 export interface PowerDef {
   id: PowerId;

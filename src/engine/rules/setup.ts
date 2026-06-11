@@ -60,7 +60,9 @@ export function createInitialState(
   }
 
   const treasury = Object.fromEntries(
-    Object.values(POWERS).map((p) => [p.id, p.startingIPC]),
+    Object.values(POWERS)
+      .filter((p) => p.id !== "Neutral")
+      .map((p) => [p.id, p.startingIPC]),
   ) as Record<PowerId, number>;
 
   return {

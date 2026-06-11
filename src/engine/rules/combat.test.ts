@@ -66,6 +66,33 @@ test("amphibious assault captures a coastal territory", () => {
   assert.equal(s.territories["holland_belgium"].controller, "UnitedKingdom");
 });
 
+test("invading a garrisoned neutral triggers a defended battle and conquest", () => {
+  const s = createInitialState(7);
+  s.activePower = "Germany";
+  s.phase = "combat_move";
+  // Switzerland holds a neutral Swiss garrison that defends when invaded.
+  assert.ok(s.territories["switzerland"].units.some((u) => u.owner === "Neutral"));
+  s.territories["france"].units.push({ type: "infantry", owner: "Germany", count: 8 });
+  const r = applyAction(s, { kind: "move", from: "france", to: "switzerland", unit: "infantry", count: 8 }, "Germany");
+  assert.equal(r.ok, true);
+  const battle = s.combat.battles.find((b) => b.territory === "switzerland");
+  assert.ok(battle, "a battle should be queued against the neutral garrison");
+  s.phase = "combat";
+  const res = resolveBattle(s, "switzerland");
+  assert.equal(res.winner, "attacker");
+  assert.equal(s.territories["switzerland"].controller, "Germany");
+});
+
+test("China may only build infantry", () => {
+  const s = createInitialState(3);
+  while (s.activePower !== "China") {
+    applyAction(s, { kind: "advance_phase" }, s.activePower);
+  }
+  assert.equal(s.phase, "purchase");
+  assert.equal(applyAction(s, { kind: "buy", units: [{ type: "tank", count: 1 }] }, "China").ok, false);
+  assert.equal(applyAction(s, { kind: "buy", units: [{ type: "infantry", count: 1 }] }, "China").ok, true);
+});
+
 test("strategic bombing damages a factory and returns bombers", () => {
   const s = createInitialState(42);
   s.activePower = "Germany";
@@ -113,7 +140,9 @@ test("annexing a neutral by walking in takes control", () => {
   s.activePower = "Germany";
   s.phase = "noncombat_move";
   s.territories["france"].units.push({ type: "infantry", owner: "Germany", count: 1 });
-  // Switzerland is a neutral (no owner) directly adjacent to France.
+  // Switzerland is a neutral directly adjacent to France; clear its Swiss
+  // garrison so this exercises the walk-in annex (undefended) path.
+  s.territories["switzerland"].units = [];
   const r = applyAction(s, { kind: "move", from: "france", to: "switzerland", unit: "infantry", count: 1 }, "Germany");
   assert.equal(r.ok, true);
   assert.equal(s.territories["switzerland"].controller, "Germany");

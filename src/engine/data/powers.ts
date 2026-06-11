@@ -88,9 +88,22 @@ export const POWERS: Record<PowerId, PowerDef> = {
     startingIPC: 19,
     turnOrder: 8,
   },
+  // Not a playable power — it simply owns the garrisons of neutral countries so
+  // they defend when invaded. Enemy of everyone, allied to none, never plays a
+  // turn (excluded from TURN_ORDER below).
+  Neutral: {
+    id: "Neutral",
+    display: "Neutral",
+    alliance: "Neutral",
+    color: "#8c8c8c",
+    capital: "",
+    startingIPC: 0,
+    turnOrder: 99,
+  },
 };
 
 export const TURN_ORDER: PowerId[] = Object.values(POWERS)
+  .filter((p) => p.id !== "Neutral")
   .sort((a, b) => a.turnOrder - b.turnOrder)
   .map((p) => p.id);
 

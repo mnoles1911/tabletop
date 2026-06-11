@@ -292,9 +292,12 @@ open(os.path.join(DATA, "borders.ts"), "w").write(borders_ts)
 grouped = {}
 order = []
 for utype, terr, qty, owner in placements:
-    powner = OWNER.get(owner) if owner else None
-    if owner and owner not in OWNER:
-        continue  # neutral garrisons: our engine has no neutral power yet
+    # Neutral-country garrisons are owned by the synthetic "Neutral" power so
+    # they defend when invaded; everything else maps to its parent power.
+    if owner and owner.startswith("Neutral"):
+        powner = "Neutral"
+    else:
+        powner = OWNER.get(owner) if owner else None
     sid = slug(terr)
     uid = UNIT.get(utype)
     if not uid:
@@ -324,8 +327,8 @@ setup_ts = '''import type { PowerId, UnitTypeId } from "../types.js";
 // The official 1940 2nd Edition starting placement, derived from the TripleA
 // setup. Each row is [territory, [[unitType, count, owner?], ...]]. Owner is
 // explicit because fleets and expeditionary units often differ from the
-// territory's controller. Neutral garrisons are omitted until the engine
-// models neutral powers.
+// territory's controller. Neutral-country garrisons are owned by the synthetic
+// "Neutral" power so invading them triggers a real defensive battle.
 // ============================================================================
 
 export type Placement = [territory: string, units: Array<[UnitTypeId, number, PowerId?]>];

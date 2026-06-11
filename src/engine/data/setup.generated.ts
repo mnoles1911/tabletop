@@ -6,17 +6,36 @@ import type { PowerId, UnitTypeId } from "../types.js";
 // The official 1940 2nd Edition starting placement, derived from the TripleA
 // setup. Each row is [territory, [[unitType, count, owner?], ...]]. Owner is
 // explicit because fleets and expeditionary units often differ from the
-// territory's controller. Neutral garrisons are omitted until the engine
-// models neutral powers.
+// territory's controller. Neutral-country garrisons are owned by the synthetic
+// "Neutral" power so invading them triggers a real defensive battle.
 // ============================================================================
 
 export type Placement = [territory: string, units: Array<[UnitTypeId, number, PowerId?]>];
 
 export const STARTING_FORCES: Placement[] = [
+  ["portugal", [["infantry", 2, "Neutral"]]],
+  ["chile", [["infantry", 2, "Neutral"]]],
+  ["afghanistan", [["infantry", 4, "Neutral"]]],
+  ["turkey", [["infantry", 8, "Neutral"]]],
+  ["mozambique", [["infantry", 2, "Neutral"]]],
+  ["saudi_arabia", [["infantry", 2, "Neutral"]]],
+  ["switzerland", [["infantry", 2, "Neutral"]]],
+  ["argentina", [["infantry", 4, "Neutral"]]],
+  ["angola", [["infantry", 2, "Neutral"]]],
+  ["venezuela", [["infantry", 2, "Neutral"]]],
+  ["sweden", [["infantry", 6, "Neutral"]]],
+  ["spain", [["infantry", 6, "Neutral"]]],
   ["ulaanbaatar", [["infantry", 1, "SovietUnion"]]],
   ["buyant_uhaa", [["infantry", 2, "SovietUnion"]]],
   ["olgiy", [["infantry", 2, "SovietUnion"]]],
   ["dzavhan", [["infantry", 1, "SovietUnion"]]],
+  ["brazil", [["infantry", 3, "Neutral"]]],
+  ["persia", [["infantry", 2, "Neutral"]]],
+  ["yugoslavia", [["infantry", 5, "Neutral"]]],
+  ["greece", [["infantry", 4, "Neutral"]]],
+  ["bulgaria", [["infantry", 4, "Neutral"]]],
+  ["iraq", [["infantry", 3, "Neutral"]]],
+  ["finland", [["infantry", 4, "Neutral"]]],
   ["japan", [["infantry", 6, "Japan"], ["artillery", 2, "Japan"], ["tank", 1, "Japan"], ["fighter", 2, "Japan"], ["tactical_bomber", 2, "Japan"], ["strategic_bomber", 2, "Japan"], ["aa_gun", 3, "Japan"], ["air_base", 1, "Japan"], ["naval_base", 1, "Japan"], ["major_ic", 1, "Japan"]]],
   ["manchuria", [["infantry", 6, "Japan"], ["mech_infantry", 1, "Japan"], ["artillery", 1, "Japan"], ["aa_gun", 1, "Japan"], ["fighter", 2, "Japan"], ["tactical_bomber", 2, "Japan"]]],
   ["paulau_island", [["infantry", 1, "Japan"]]],

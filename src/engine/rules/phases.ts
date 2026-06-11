@@ -262,7 +262,8 @@ export function checkVictory(state: GameState): void {
     const counts: Record<string, number> = { Axis: 0, Allies: 0 };
     for (const ts of Object.values(state.territories)) {
       if (TERRITORY_INDEX[ts.id]?.victoryCity && ts.controller) {
-        counts[POWERS[ts.controller].alliance] += 1;
+        const alliance = POWERS[ts.controller].alliance;
+        if (alliance === "Axis" || alliance === "Allies") counts[alliance] += 1;
       }
     }
     if (counts.Axis >= need) {
