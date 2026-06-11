@@ -188,8 +188,10 @@ interface Props {
   state: GameState;
   selected: string | null;
   targets: Set<string>;
+  range?: Set<string>;
   battles: Set<string>;
   onPick: (id: string) => void;
+  onHoverTerr?: (id: string | null) => void;
   lastMove?: { from: string; to: string; type: UnitTypeId; owner: string; nonce: number } | null;
 }
 
@@ -262,12 +264,13 @@ function useCells(): { cells: Cell[]; byId: Map<string, Cell> } {
   }, []);
 }
 
-function Province({ cell, state, selected, targets, battles, onPick }: { cell: Cell } & Props) {
+function Province({ cell, state, selected, targets, range, battles, onPick, onHoverTerr }: { cell: Cell } & Props) {
   const isSel = selected === cell.id;
   const isTarget = targets.has(cell.id);
+  const isRange = !!range?.has(cell.id);
   const isBattle = battles.has(cell.id);
-  const hot = isSel || isTarget || isBattle;
-  const color = isBattle ? "#d96a5a" : isTarget ? "#5ad98a" : isSel ? "#d9b24a" : controllerColor(state, cell.id);
+  const hot = isSel || isTarget || isBattle || isRange;
+  const color = isBattle ? "#d96a5a" : isTarget ? "#5ad98a" : isRange ? "#3fd0e0" : isSel ? "#d9b24a" : controllerColor(state, cell.id);
   const opacity = cell.sea ? (hot ? 0.32 : 0.015) : hot ? 0.7 : 0.5;
   const lineColor = isSel ? "#ffe08a" : cell.sea ? "#1d4a6e" : "#0b1f33";
   return (
@@ -275,8 +278,8 @@ function Province({ cell, state, selected, targets, battles, onPick }: { cell: C
       <mesh
         geometry={cell.fill}
         onClick={(e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); onPick(cell.id); }}
-        onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = "pointer"; }}
-        onPointerOut={() => { document.body.style.cursor = "default"; }}
+        onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = "pointer"; onHoverTerr?.(cell.id); }}
+        onPointerOut={() => { document.body.style.cursor = "default"; onHoverTerr?.(null); }}
       >
         <meshBasicMaterial color={color} transparent opacity={opacity} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>

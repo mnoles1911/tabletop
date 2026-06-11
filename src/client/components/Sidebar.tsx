@@ -39,8 +39,19 @@ interface Props {
   setSelectedCount: (n: number) => void;
   mobilizeUnit: UnitTypeId | null;
   setMobilizeUnit: (u: UnitTypeId | null) => void;
+  setHoverUnit: (h: { territory: string; type: UnitTypeId } | null) => void;
   act: (a: Action) => void;
   busy: boolean;
+}
+
+/** Compact attack / defense / movement readout shown on every unit row. */
+function Adm({ type }: { type: UnitTypeId }) {
+  const u = UNITS[type];
+  return (
+    <span className="adm" title={`Attack ${u.attack} · Defense ${u.defense} · Move ${u.movement} · Cost ${u.cost}`}>
+      ⚔{u.attack} 🛡{u.defense} 🚶{u.movement}
+    </span>
+  );
 }
 
 const PHASE_LABEL: Record<string, string> = {
@@ -130,7 +141,7 @@ function PurchasePanel({ view, act, busy }: Props) {
         const u = UNITS[t];
         return (
           <div className="buy-row" key={t}>
-            <span>{u.display} <span className="hint">({u.cost})</span></span>
+            <span>{u.display} <span className="hint">({u.cost})</span> <Adm type={t} /></span>
             <span className="qty">
               <button onClick={() => bump(t, -1)} disabled={!cart[t]}>−</button>
               <b>{cart[t] ?? 0}</b>
@@ -215,19 +226,26 @@ function ResearchPanel({ state, active, act, busy }: { state: GameState; active:
 }
 
 // --- Movement --------------------------------------------------------------
-function MovePanel({ view, selectedTerr, selectedUnit, selectedCount, setSelectedUnit, setSelectedCount, act, busy }: Props) {
+function MovePanel({ view, selectedTerr, selectedUnit, selectedCount, setSelectedUnit, setSelectedCount, setHoverUnit, act, busy }: Props) {
   const { state } = view;
   const active = state.activePower;
   if (!selectedTerr) return <div className="hint mt">Tap a territory with your units to move them.</div>;
   const yours = state.territories[selectedTerr].units.filter((u) => u.owner === active);
+  const combat = state.phase === "combat_move";
   return (
     <div>
       <div className="section-title">Move from {TERRITORY_INDEX[selectedTerr].display}</div>
       {yours.length === 0 && <div className="hint">No units of yours here.</div>}
       {yours.map((u) => (
-        <div className="buy-row" key={u.type} style={{ borderColor: selectedUnit === u.type ? "var(--gold)" : undefined }}>
+        <div
+          className="buy-row"
+          key={u.type}
+          style={{ borderColor: selectedUnit === u.type ? "var(--gold)" : undefined }}
+          onMouseEnter={() => setHoverUnit({ territory: selectedTerr, type: u.type })}
+          onMouseLeave={() => setHoverUnit(null)}
+        >
           <label className="row" style={{ cursor: "pointer" }} onClick={() => { setSelectedUnit(u.type); setSelectedCount(Math.min(selectedCount || 1, u.count)); }}>
-            <input type="radio" checked={selectedUnit === u.type} readOnly /> {UNITS[u.type].display} ×{u.count}
+            <input type="radio" checked={selectedUnit === u.type} readOnly /> {UNITS[u.type].display} ×{u.count} <Adm type={u.type} />
           </label>
           {selectedUnit === u.type && (
             <span className="qty">
@@ -238,7 +256,10 @@ function MovePanel({ view, selectedTerr, selectedUnit, selectedCount, setSelecte
           )}
         </div>
       ))}
-      {selectedUnit && <div className="hint mt">Tap a green destination to move {selectedCount}× {UNITS[selectedUnit].display}.</div>}
+      <div className="hint mt">
+        {combat ? "Hover a unit to preview its attack range" : "Hover a unit to preview where it can move"} (cyan).
+        {selectedUnit && <> Tap a green destination to move {selectedCount}× {UNITS[selectedUnit].display}.</>}
+      </div>
 
       <TransportSection state={state} active={active} from={selectedTerr} unit={selectedUnit} count={selectedCount} act={act} busy={busy} />
       <SbrSection state={state} active={active} from={selectedTerr} act={act} busy={busy} />

@@ -3,11 +3,17 @@ import {
   checkMove,
   placementOptions,
   TERRITORIES,
+  TERRITORY_INDEX,
+  POWERS,
+  UNITS,
+  isSea,
   type Action,
+  type PowerId,
   type UnitTypeId,
 } from "@engine/index";
 import { type GameView } from "./api.js";
 import { backend, LOCAL } from "./backend.js";
+import { DiceTray } from "./components/DiceTray.js";
 import {
   recordGame,
   exportSaveFile,
@@ -45,6 +51,10 @@ export function App() {
   const [lastMove, setLastMove] = useState<
     { from: string; to: string; type: UnitTypeId; owner: string; nonce: number } | null
   >(null);
+  // Hover intelligence: previewing a unit's reach, and a province info HUD.
+  const [hoverUnit, setHoverUnit] = useState<{ territory: string; type: UnitTypeId } | null>(null);
+  const [hoverTerr, setHoverTerr] = useState<string | null>(null);
+  const [dice, setDice] = useState<{ atk: number[]; def: number[]; territory: string; nonce: number } | null>(null);
   const [autoBackup, setAuto] = useState(autoBackupEnabled());
   const [savedFlash, setSavedFlash] = useState(false);
 
@@ -143,6 +153,13 @@ export function App() {
           setSelectedUnit(null);
           setLastMove({ from: action.from, to: action.to, type: action.unit, owner: mover, nonce: Date.now() });
         }
+        // Feed the 3D dice tray when a combat round is fought.
+        if (action.kind === "battle_round") {
+          const b = r.state.combat.battles.find((x) => x.territory === action.territory);
+          if (b?.lastRound && (b.lastRound.attackerRolls.length || b.lastRound.defenderRolls.length)) {
+            setDice({ atk: b.lastRound.attackerRolls, def: b.lastRound.defenderRolls, territory: action.territory, nonce: Date.now() });
+          }
+        }
       } catch (e) {
         setError((e as Error).message);
         refresh();
@@ -171,6 +188,21 @@ export function App() {
     }
     return set;
   }, [view, canAct, selectedTerr, selectedUnit, selectedCount, mobilizeUnit]);
+
+  // Range preview: hovering a unit highlights everywhere it could move/attack.
+  const rangeTargets = useMemo(() => {
+    const set = new Set<string>();
+    if (!view || !hoverUnit) return set;
+    const { state } = view;
+    if (state.phase !== "combat_move" && state.phase !== "noncombat_move") return set;
+    for (const t of TERRITORIES) {
+      if (t.id === hoverUnit.territory) continue;
+      if (checkMove(state, state.activePower, { from: hoverUnit.territory, to: t.id, type: hoverUnit.type, count: 1 }).ok) {
+        set.add(t.id);
+      }
+    }
+    return set;
+  }, [view, hoverUnit]);
 
   const battles = useMemo(() => {
     const set = new Set<string>();
@@ -236,7 +268,9 @@ export function App() {
     <div className={`app ${sheetOpen ? "sheet-open" : ""}`}>
       <div className="board-wrap">
         {view.state.winner && <div className="banner">🏆 {view.state.winner} Victory!</div>}
-        <Board state={view.state} selected={selectedTerr} targets={targets} battles={battles} onPick={onPick} lastMove={lastMove} />
+        <Board state={view.state} selected={selectedTerr} targets={targets} range={rangeTargets} battles={battles} onPick={onPick} onHoverTerr={setHoverTerr} lastMove={lastMove} />
+        {hoverTerr && <TerrHud state={view.state} id={hoverTerr} />}
+        <DiceTray event={dice} />
         <div className="save-bar">
           <span className={`save-dot ${savedFlash ? "on" : ""}`} title="Autosaved to this browser">
             {savedFlash ? "Saved ✓" : "Autosave on"}
@@ -261,9 +295,50 @@ export function App() {
         setSelectedCount={setSelectedCount}
         mobilizeUnit={mobilizeUnit}
         setMobilizeUnit={setMobilizeUnit}
+        setHoverUnit={setHoverUnit}
         act={act}
         busy={busy}
       />
+    </div>
+  );
+}
+
+/** A small hover HUD: a province's controller, value and force breakdown. */
+function TerrHud({ state, id }: { state: GameView["state"]; id: string }) {
+  const def = TERRITORY_INDEX[id];
+  if (!def) return null;
+  const ts = state.territories[id];
+  const ctrl = ts?.controller;
+  const groups = new Map<string, number>();
+  for (const u of ts?.units ?? []) {
+    const key = `${u.owner}:${u.type}`;
+    groups.set(key, (groups.get(key) ?? 0) + u.count);
+  }
+  return (
+    <div className="terr-hud">
+      <div className="terr-hud-title">
+        {def.victoryCity ? "★ " : ""}{def.display}
+        {def.ipc > 0 && <span className="terr-hud-ipc"> {def.ipc} IPC</span>}
+      </div>
+      <div className="hint">
+        {isSea(id) ? "Sea zone" : ctrl ? <>Controlled by <b style={{ color: POWERS[ctrl].color }}>{POWERS[ctrl].display}</b></> : "Unoccupied / neutral"}
+      </div>
+      {groups.size === 0 ? (
+        <div className="hint">No forces present.</div>
+      ) : (
+        <div className="terr-hud-units">
+          {[...groups.entries()].map(([key, n]) => {
+            const [owner, type] = key.split(":") as [PowerId, UnitTypeId];
+            return (
+              <div key={key} className="terr-hud-row">
+                <span className="swatch" style={{ background: POWERS[owner].color }} />
+                {n}× {UNITS[type].display}
+                <span className="terr-hud-adm">⚔{UNITS[type].attack} 🛡{UNITS[type].defense} 🚶{UNITS[type].movement}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
