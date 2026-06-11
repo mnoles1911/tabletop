@@ -15,6 +15,7 @@ import {
   type GameState,
   type PowerId,
   type UnitTypeId,
+  type UnitStack,
 } from "@engine/index";
 
 const STRUCTURES = new Set<UnitTypeId>(["air_base", "naval_base", "major_ic", "minor_ic"]);
@@ -235,6 +236,86 @@ function UnitModel({ type, color }: { type: UnitTypeId; color: string }) {
   }
 }
 
+// --- A&A chip stacks -------------------------------------------------------
+// Classic tabletop convention: a single plastic model identifies the TYPE, and
+// it stands on a stack of value chips that encode the quantity. We render the
+// model as count=1, then greedily decompose the REMAINING (count - 1) into
+// red(5) / yellow(3) / grey(1) discs, biggest first — so the chip pile under a
+// model reads as "how many of this type" at a glance:
+//   count 1  → no chips         count 2  → grey
+//   count 4  → yellow           count 7  → red + grey
+//   count 12 → red + red + grey
+const CHIP_VALUES = [
+  { v: 5, color: "#d2403a" }, // red
+  { v: 3, color: "#e7c14a" }, // yellow
+  { v: 1, color: "#9aa3b0" }, // grey
+] as const;
+
+/** Greedy decomposition of (count-1) into red/yellow/grey chip values. */
+function chipDecomp(count: number): number[] {
+  let rem = Math.max(0, count - 1);
+  const chips: number[] = [];
+  for (const { v } of CHIP_VALUES) {
+    while (rem >= v) { chips.push(v); rem -= v; }
+  }
+  return chips; // ordered largest→smallest (bottom→top of pile)
+}
+
+// Shared, reused geometry + the three chip materials. One cylinder geometry is
+// instanced across all 333 territories; only three materials ever exist, so the
+// chip layer stays cheap regardless of how dense the board gets.
+const CHIP_R = 0.0095; // slightly wider than a model footprint
+const CHIP_H = 0.0028; // base chip thickness (scaled down when piles are tall)
+const chipGeo = new THREE.CylinderGeometry(CHIP_R, CHIP_R, CHIP_H, 16);
+const chipRimGeo = new THREE.CylinderGeometry(CHIP_R * 1.04, CHIP_R * 1.04, CHIP_H * 0.34, 16);
+const chipMats: Record<number, THREE.MeshStandardMaterial> = {
+  5: new THREE.MeshStandardMaterial({ color: "#d2403a", roughness: 0.6, metalness: 0 }),
+  3: new THREE.MeshStandardMaterial({ color: "#e7c14a", roughness: 0.6, metalness: 0 }),
+  1: new THREE.MeshStandardMaterial({ color: "#9aa3b0", roughness: 0.6, metalness: 0 }),
+};
+// A darker rim disc sits at each chip's lower edge so individual chips in a
+// stack stay visually separable even when same-coloured chips touch.
+const chipRimMat = new THREE.MeshStandardMaterial({ color: "#1a1d24", roughness: 0.8, metalness: 0 });
+
+/**
+ * A model standing on its plastic-chip pile. Returns the pile height so the
+ * caller can sit the model on top. Caps the visual pile at MAX_CHIPS and
+ * thins the discs when there are many, so tall stacks never tower out of the
+ * province footprint.
+ */
+const MAX_CHIPS = 5;
+function ChipPile({ count }: { count: number }) {
+  const chips = chipDecomp(count);
+  if (chips.length === 0) return null;
+  // Compress very tall piles: keep the most valuable chips, and thin them so
+  // the whole pile never exceeds ~MAX_CHIPS base-thickness.
+  const overflow = chips.length > MAX_CHIPS;
+  const shown = overflow ? chips.slice(0, MAX_CHIPS) : chips;
+  const thin = overflow ? MAX_CHIPS / chips.length : 1;
+  const h = CHIP_H * thin;
+  let y = 0;
+  const out: React.ReactElement[] = [];
+  for (let i = 0; i < shown.length; i++) {
+    const cy = y + h / 2;
+    out.push(
+      <group key={i} position={[0, cy, 0]}>
+        <mesh geometry={chipGeo} material={chipMats[shown[i]]} scale={[1, thin, 1]} />
+        <mesh geometry={chipRimGeo} material={chipRimMat} position={[0, -h / 2, 0]} scale={[1, thin, 1]} />
+      </group>,
+    );
+    y += h;
+  }
+  return <>{out}</>;
+}
+
+/** Resolved height of the chip pile for a given count (to seat the model). */
+function pileHeight(count: number): number {
+  const chips = chipDecomp(count);
+  if (chips.length === 0) return 0;
+  const thin = chips.length > MAX_CHIPS ? MAX_CHIPS / chips.length : 1;
+  return CHIP_H * thin * Math.min(chips.length, MAX_CHIPS);
+}
+
 interface Props {
   state: GameState;
   selected: string | null;
@@ -399,13 +480,36 @@ function Stack({ cell, state, zoom }: { cell: Cell; state: GameState; zoom: Reac
   const ownerColor = owner ? POWERS[owner].color : "#cccccc";
   const quat = standing(cell.pos);
 
-  // Structures (factories, air bases, naval bases) ALWAYS show, wherever they
-  // are; the most numerous mobile unit types fill out the rest of the cluster.
-  const structures = units.filter((u) => STRUCTURES.has(u.type));
-  const mobile = units.filter((u) => !STRUCTURES.has(u.type)).sort((a, b) => b.count - a.count).slice(0, 3);
-  const shown = [...structures, ...mobile];
-  const spread = 0.02;
-  const clusterScale = Math.min(2.2, 1.05 + Math.log2(total + 1) * 0.2);
+  // Group ALL present unit types by owner so each owner gets its own row of
+  // type-models; structures sort first within a row. Multiple allied owners in
+  // one sea zone end up as parallel rows, side by side.
+  const byOwner = new Map<PowerId, UnitStack[]>();
+  for (const u of units) {
+    if (u.count <= 0) continue;
+    const arr = byOwner.get(u.owner) ?? [];
+    arr.push(u);
+    byOwner.set(u.owner, arr);
+  }
+  const ownerRows = [...byOwner.entries()].map(([oid, arr]) => ({
+    owner: oid,
+    // structures first, then mobile by descending count, for a stable layout
+    stacks: [...arr].sort((a, b) => {
+      const sa = STRUCTURES.has(a.type) ? 0 : 1;
+      const sb = STRUCTURES.has(b.type) ? 0 : 1;
+      return sa - sb || b.count - a.count;
+    }),
+  }));
+  const maxRowLen = Math.max(1, ...ownerRows.map((r) => r.stacks.length));
+  const spread = 0.02; // gap between models within a row
+  const rowGap = 0.022; // gap between owner rows
+  const baseW = maxRowLen * spread;
+  const baseD = ownerRows.length * rowGap;
+  // Cluster scale grows with stack strength but is reined back in when the grid
+  // itself is wide/deep (many types or owners) so a dense province's pile-grid
+  // still fits inside its own footprint and never overlaps neighbours.
+  const gridSpan = Math.max(baseW, baseD);
+  const fit = THREE.MathUtils.clamp(0.16 / Math.max(0.16, gridSpan), 0.6, 1);
+  const clusterScale = Math.min(2.2, 1.05 + Math.log2(total + 1) * 0.2) * fit;
   // Force-dot radius scales mildly with stack strength.
   const dotScale = Math.min(1.7, 0.7 + Math.log2(total + 1) * 0.16);
 
@@ -451,17 +555,33 @@ function Stack({ cell, state, zoom }: { cell: Cell; state: GameState; zoom: Reac
         </group>
       )}
 
-      {/* base plate so the models pop against terrain, + the models. */}
+      {/* base plate so the models pop against terrain, + the per-type grid.
+          Each owner is a row (offset in Z); within a row each unit TYPE is a
+          model standing on its own chip pile (chips encode the count). */}
       <group ref={modelRef}>
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
-          <circleGeometry args={[0.03 + shown.length * 0.006, 28]} />
-          <meshBasicMaterial color="#0c1018" transparent opacity={0.42} depthWrite={false} />
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.0008, 0]}>
+          <circleGeometry args={[0.02 + Math.max(baseW, baseD) * 0.5, 28]} />
+          <meshBasicMaterial color="#0c1018" transparent opacity={0.28} depthWrite={false} />
         </mesh>
-        {shown.map((u, i) => (
-          <group key={`${u.type}-${u.owner}`} position={[(i - (shown.length - 1) / 2) * spread, 0, 0]}>
-            <UnitModel type={u.type} color={POWERS[u.owner]?.color ?? ownerColor} />
-          </group>
-        ))}
+        {ownerRows.map((row, ri) => {
+          const z = (ri - (ownerRows.length - 1) / 2) * rowGap;
+          const rc = POWERS[row.owner]?.color ?? ownerColor;
+          return (
+            <group key={row.owner} position={[0, 0, z]}>
+              {row.stacks.map((u, i) => {
+                const x = (i - (row.stacks.length - 1) / 2) * spread;
+                return (
+                  <group key={u.type} position={[x, 0, 0]}>
+                    <ChipPile count={u.count} />
+                    <group position={[0, pileHeight(u.count), 0]}>
+                      <UnitModel type={u.type} color={rc} />
+                    </group>
+                  </group>
+                );
+              })}
+            </group>
+          );
+        })}
       </group>
 
       {cell.victoryCity && (
@@ -470,6 +590,9 @@ function Stack({ cell, state, zoom }: { cell: Cell; state: GameState; zoom: Reac
           <meshStandardMaterial color="#e6c25a" emissive="#7a5a10" roughness={0.5} />
         </mesh>
       )}
+      {/* Small TOTAL badge — mid zoom only. At full near detail the chip piles
+          carry the count, so this fades out to avoid clutter; far zoom uses the
+          force dot instead. Peaks in the mid band, fades at both ends. */}
       {total > 1 && (
         <SurfaceHtml
           anchor={cell.pos}
@@ -477,7 +600,12 @@ function Stack({ cell, state, zoom }: { cell: Cell; state: GameState; zoom: Reac
           center
           distanceFactor={1.7}
           zIndexRange={[10, 0]}
-          fade={() => THREE.MathUtils.clamp((zoom.current.detail - 0.14) / 0.3, 0, 1)}
+          fade={() => {
+            const d = zoom.current.detail; // 1 near → 0 far
+            const fadeIn = THREE.MathUtils.clamp((d - 0.18) / 0.22, 0, 1); // appears leaving far
+            const fadeOut = THREE.MathUtils.clamp((0.82 - d) / 0.22, 0, 1); // gone entering near
+            return Math.min(fadeIn, fadeOut);
+          }}
         >
           <div className="globe-chip">
             <span className="globe-chip-dot" style={{ background: ownerColor }} />
@@ -700,7 +828,16 @@ export function GlobeBoard(props: Props) {
         <color attach="background" args={["#05080f"]} />
         <Scene {...props} />
       </Canvas>
-      <div className="globe-hint">Drag to rotate · scroll / pinch to zoom · tap a province to select</div>
+      <div className="globe-hint">
+        <span>Drag to rotate · scroll / pinch to zoom · tap a province to select</span>
+        <span className="chip-legend" title="Each model = one unit type; the discs beneath it count that type (model itself = 1).">
+          <span className="chip-legend-sep">·</span>
+          chips:
+          <span className="chip-swatch" style={{ background: "#d2403a" }} />5
+          <span className="chip-swatch" style={{ background: "#e7c14a" }} />3
+          <span className="chip-swatch" style={{ background: "#9aa3b0" }} />1
+        </span>
+      </div>
     </div>
   );
 }
