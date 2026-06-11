@@ -24,7 +24,8 @@ const WARSHIPS = new Set<UnitTypeId>(["destroyer", "cruiser", "battleship", "air
 // 3D globe renderer (three.js / react-three-fiber).
 //
 // The world is a sphere whose continents ARE the Axis & Allies provinces (real
-// board outlines wrapped onto the sphere) over a faint daytime satellite layer.
+// board outlines wrapped onto the sphere) over an opaque daytime satellite layer
+// (warped by tools/triplea/warp_earth.py so its coastlines match the board).
 // Forces are little 3D models — infantry, tanks, planes, warships, factories —
 // standing on the surface, sized by stack strength. Moves animate: land units
 // slide, ships sail along the surface, aircraft arc overhead.
@@ -304,6 +305,25 @@ function standing(pos: THREE.Vector3): THREE.Quaternion {
   return new THREE.Quaternion().setFromUnitVectors(Y, pos.clone().normalize());
 }
 
+/**
+ * drei <Html> overlays are DOM elements painted over the canvas, so without
+ * help they shine straight through the earth. This wrapper hides the content
+ * whenever its surface anchor is on the far side of the globe (a point p on a
+ * sphere of radius R is visible from camera c iff p·c > R²).
+ */
+function SurfaceHtml({ anchor, children, ...rest }: { anchor: THREE.Vector3 } & React.ComponentProps<typeof Html>) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFrame(({ camera }) => {
+    if (!ref.current) return;
+    ref.current.style.visibility = anchor.dot(camera.position) > R * R ? "visible" : "hidden";
+  });
+  return (
+    <Html {...rest}>
+      <div ref={ref}>{children}</div>
+    </Html>
+  );
+}
+
 function Stack({ cell, state }: { cell: Cell; state: GameState }) {
   const ts = state.territories[cell.id];
   const units = ts?.units ?? [];
@@ -337,9 +357,9 @@ function Stack({ cell, state }: { cell: Cell; state: GameState }) {
         </mesh>
       )}
       {total > 0 && (
-        <Html position={[0, 0.06, 0]} center distanceFactor={1.4} zIndexRange={[10, 0]}>
+        <SurfaceHtml anchor={cell.pos} position={[0, 0.06, 0]} center distanceFactor={1.4} zIndexRange={[10, 0]}>
           <div className="globe-chip">⚔{total}</div>
-        </Html>
+        </SurfaceHtml>
       )}
     </group>
   );
@@ -419,7 +439,7 @@ function Globe() {
   return (
     <>
       <mesh geometry={oceanGeo}><meshStandardMaterial color="#13456e" roughness={0.9} metalness={0.05} /></mesh>
-      <mesh geometry={terrainGeo}><meshStandardMaterial map={texture} transparent opacity={0.5} roughness={1} metalness={0} depthWrite={false} /></mesh>
+      <mesh geometry={terrainGeo}><meshStandardMaterial map={texture} roughness={1} metalness={0} /></mesh>
     </>
   );
 }
@@ -443,7 +463,7 @@ function useZones(cells: Cell[], state: GameState): { kami: Set<string>; convoy:
           const lt = state.territories[n];
           const d = TERRITORY_INDEX[n];
           if (!lt?.controller || !d || d.ipc <= 0) continue;
-          if ([...shipOwners].some((o) => areEnemies(o, lt.controller!))) { convoy.add(c.id); break; }
+          if ([...shipOwners].some((o) => areEnemies(state, o, lt.controller!))) { convoy.add(c.id); break; }
         }
       }
     }
@@ -471,21 +491,21 @@ function Scene(props: Props) {
         <Stack key={`s-${c.id}`} cell={c} state={props.state} />
       ))}
       {cells.filter((c) => c.victoryCity).map((c) => (
-        <Html key={`l-${c.id}`} position={c.pos.clone().multiplyScalar(1.12).toArray()} center distanceFactor={2} zIndexRange={[10, 0]}>
+        <SurfaceHtml key={`l-${c.id}`} anchor={c.pos} position={c.pos.clone().multiplyScalar(1.12).toArray()} center distanceFactor={2} zIndexRange={[10, 0]}>
           <div className="globe-label">★ {c.display}</div>
-        </Html>
+        </SurfaceHtml>
       ))}
 
       {/* Special-rule sea-zone markers: kamikaze defence & convoy raiding. */}
       {cells.filter((c) => zones.kami.has(c.id)).map((c) => (
-        <Html key={`kz-${c.id}`} position={c.pos.toArray()} center distanceFactor={2.4} zIndexRange={[8, 0]}>
+        <SurfaceHtml key={`kz-${c.id}`} anchor={c.pos} position={c.pos.toArray()} center distanceFactor={2.4} zIndexRange={[8, 0]}>
           <div className="zone-badge kami" title="Kamikaze zone — Japanese island defence">🎌</div>
-        </Html>
+        </SurfaceHtml>
       ))}
       {cells.filter((c) => zones.convoy.has(c.id)).map((c) => (
-        <Html key={`cz-${c.id}`} position={c.pos.toArray()} center distanceFactor={2.4} zIndexRange={[8, 0]}>
+        <SurfaceHtml key={`cz-${c.id}`} anchor={c.pos} position={c.pos.toArray()} center distanceFactor={2.4} zIndexRange={[8, 0]}>
           <div className="zone-badge convoy" title="Convoy raid — enemy warships disrupting income here">⚠️</div>
-        </Html>
+        </SurfaceHtml>
       ))}
 
       <MovementLayer lastMove={props.lastMove} byId={byId} />
