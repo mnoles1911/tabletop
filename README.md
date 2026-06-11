@@ -136,3 +136,15 @@ victory conditions.
 npm test           # node:test engine suite (determinism, economy, phases)
 npm run typecheck
 ```
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 or
+later** — see [LICENSE](LICENSE).
+
+The AI opponents (`src/engine/ai/pro/`) are ported from
+[TripleA](https://github.com/triplea-game/triplea)'s Pro AI
+(`games.strategy.triplea.ai.pro`), © the TripleA contributors, GPL-3.0.
+The whole project adopts GPL-3.0 because it contains that derived work.
+Map/territory geometry is likewise derived from TripleA's open-source
+`world_war_ii_global` map data.

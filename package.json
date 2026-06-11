@@ -2,6 +2,7 @@
   "name": "axis-allies-global-1940",
   "version": "0.1.0",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "description": "Online play-by-cloud implementation of Axis & Allies Global 1940 (2nd Edition).",
   "scripts": {
