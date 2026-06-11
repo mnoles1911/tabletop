@@ -40,6 +40,11 @@ export function App() {
   const [selectedCount, setSelectedCount] = useState(1);
   const [mobilizeUnit, setMobilizeUnit] = useState<UnitTypeId | null>(null);
   const [sheetOpen, setSheetOpen] = useState(true); // mobile bottom sheet
+  // The most recent move, handed to the globe so it can animate the units
+  // travelling from origin to destination (land slide / sea sail / air arc).
+  const [lastMove, setLastMove] = useState<
+    { from: string; to: string; type: UnitTypeId; owner: string; nonce: number } | null
+  >(null);
   const [autoBackup, setAuto] = useState(autoBackupEnabled());
   const [savedFlash, setSavedFlash] = useState(false);
 
@@ -131,9 +136,13 @@ export function App() {
       setBusy(true);
       setError(null);
       try {
+        const mover = view.state.activePower;
         const r = await backend.act(gameId, token, action, view.state.version);
         setView({ ...view, state: r.state, seats: r.seats });
-        if (action.kind === "move") setSelectedUnit(null);
+        if (action.kind === "move") {
+          setSelectedUnit(null);
+          setLastMove({ from: action.from, to: action.to, type: action.unit, owner: mover, nonce: Date.now() });
+        }
       } catch (e) {
         setError((e as Error).message);
         refresh();
@@ -227,7 +236,7 @@ export function App() {
     <div className={`app ${sheetOpen ? "sheet-open" : ""}`}>
       <div className="board-wrap">
         {view.state.winner && <div className="banner">🏆 {view.state.winner} Victory!</div>}
-        <Board state={view.state} selected={selectedTerr} targets={targets} battles={battles} onPick={onPick} />
+        <Board state={view.state} selected={selectedTerr} targets={targets} battles={battles} onPick={onPick} lastMove={lastMove} />
         <div className="save-bar">
           <span className={`save-dot ${savedFlash ? "on" : ""}`} title="Autosaved to this browser">
             {savedFlash ? "Saved ✓" : "Autosave on"}
