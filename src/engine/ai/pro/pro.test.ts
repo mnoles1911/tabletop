@@ -18,6 +18,10 @@ import {
 import { calculateMoveActions } from "./ProMoveUtils.js";
 import { findPurchaseOptions, findLandPurchaseOptions } from "./ProPurchaseUtils.js";
 import { applyAction } from "../../rules/actions.js";
+import { areEnemies } from "../../rules/politics.js";
+import { planCombatMove } from "./ProCombatMoveAi.js";
+import { planPurchase } from "./ProPurchaseAi.js";
+import { planPolitics } from "./ProPoliticsAi.js";
 
 /** A fresh state with Germany & USSR at war (a convenient land belligerent pair). */
 function warState(): GameState {
@@ -221,4 +225,62 @@ test("purchase utils: China is infantry-only; infantry has best cost/HP on land"
     o.costPerHitPoint < best.costPerHitPoint ? o : best,
   );
   assert.equal(cheapest.type, "infantry", "infantry has the best cost-per-hitpoint among land units");
+});
+
+// --- planner-level coverage (the full Pro port) ----------------------------
+
+test("combat-move planner: Germany round 1 attacks a French/UK target", () => {
+  // G40 default already has Germany at war with France & the UK bloc.
+  const state = createInitialState(12345);
+  state.phase = "combat_move";
+  state.activePower = "Germany";
+  const actions = planCombatMove(state);
+  assert.ok(actions.length > 0, "Germany should plan combat moves in round 1");
+
+  // At least one attack lands on an enemy-controlled (French / UK-bloc) target.
+  const attacksEnemy = actions.some((a) => {
+    if (a.kind !== "move" && a.kind !== "transport") return false;
+    const to = (a as { to: string }).to;
+    const c = state.territories[to]?.controller;
+    return !!c && areEnemies(state, c, "Germany");
+  });
+  assert.ok(attacksEnemy, "a German combat move should strike an enemy-held territory");
+
+  // The committed attack should be favourable — apply the plan and confirm at
+  // least one queued battle exists with German attackers present.
+  const clone: GameState = structuredClone(state);
+  clone.phase = "combat_move";
+  clone.activePower = "Germany";
+  for (const a of actions) applyAction(clone, a, "Germany");
+  const germanBattle = clone.combat.battles.find(
+    (b) => b.attacker === "Germany" && !b.sbr,
+  );
+  assert.ok(germanBattle, "Germany should have queued at least one ground/sea battle");
+});
+
+test("purchase planner: a power spends its treasury on a single consolidated buy", () => {
+  const state = createInitialState(999);
+  state.phase = "purchase";
+  state.activePower = "Germany";
+  const before = state.treasury["Germany"];
+  const actions = planPurchase(state);
+  const buys = actions.filter((a) => a.kind === "buy");
+  assert.equal(buys.length, 1, "exactly one consolidated buy action");
+  // Applying it should not overspend.
+  const clone: GameState = structuredClone(state);
+  for (const a of actions) {
+    const r = applyAction(clone, a, "Germany");
+    assert.ok(r.ok, `purchase action should succeed: ${r.error}`);
+  }
+  assert.ok(clone.treasury["Germany"] >= 0, "must not overspend");
+  assert.ok(clone.treasury["Germany"] < before, "should actually spend IPC");
+});
+
+test("politics planner: deterministic — same seed/round yields the same declarations", () => {
+  const a = createInitialState(42);
+  a.phase = "politics";
+  a.activePower = "Japan";
+  a.round = 3;
+  const b = structuredClone(a);
+  assert.deepEqual(planPolitics(a), planPolitics(b), "politics must be a pure function of state");
 });

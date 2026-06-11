@@ -1,7 +1,7 @@
 import type { GameState, PowerId } from "../types.js";
 import type { Action } from "../rules/actions.js";
 import { expectedActor } from "../rules/actions.js";
-import { planPhase, answerBattlePrompt } from "./pro/ProAi.js";
+import { planPhase, answerBattlePrompt, nextCombatAction } from "./pro/ProAi.js";
 
 // ============================================================================
 // AI driver. `nextAiAction(state)` returns the single next Action the power
@@ -43,6 +43,15 @@ export function nextAiAction(state: GameState): Action | null {
     const prompt = answerBattlePrompt(state, actor);
     if (prompt) return prompt;
     if (actor !== state.activePower) return null; // nothing to answer
+  }
+
+  // Combat is NOT memoized: the fight/retreat decision must be recomputed per
+  // battle round (plans consumed action-by-action would advance the phase while
+  // battles remained unresolved). Compute the next combat action directly; when
+  // none remains, advance the phase. Determinism holds — it's a pure function of
+  // the current state.
+  if (state.phase === "combat") {
+    return nextCombatAction(state) ?? { kind: "advance_phase" };
   }
 
   const key = cacheKey(state);
